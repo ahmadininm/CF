@@ -18,57 +18,24 @@ emission_factors = {
 
 # Streamlit Application
 st.title("Business as Usual (BAU) Carbon Emission Calculator")
-st.subheader("Enter your daily usage values below:")
 
-# Input table for default items
+# Input BAU values (predefined for simplicity)
+st.subheader("Business as Usual (BAU) Inputs")
 bau_data = pd.DataFrame({
     "Item": default_items,
-    "Daily Usage (Units)": [0] * len(default_items)
+    "Daily Usage (Units)": [3000, 1000, 500, 200, 100, 50]  # Example default values
 })
-
-# Collect user inputs using Streamlit widgets
-for i in range(len(bau_data)):
-    bau_data.loc[i, "Daily Usage (Units)"] = st.number_input(
-        f"{bau_data['Item'][i]}:",
-        min_value=0.0,
-        step=0.1,
-        value=0.0
-    )
-
-# Option to add custom items
-st.subheader("Add Custom Items (Optional)")
-if st.checkbox("Add custom items?"):
-    custom_items = []
-    custom_emission_factors = []
-    custom_usages = []
-
-    num_custom_items = st.number_input("How many custom items would you like to add?", min_value=1, step=1, value=1)
-    for i in range(num_custom_items):
-        item_name = st.text_input(f"Custom Item {i + 1} Name:")
-        emission_factor = st.number_input(f"Custom Item {i + 1} Emission Factor (kg CO2e/unit):", min_value=0.0, step=0.01)
-        usage = st.number_input(f"Custom Item {i + 1} Daily Usage (Units):", min_value=0.0, step=0.1)
-        custom_items.append(item_name)
-        custom_emission_factors.append(emission_factor)
-        custom_usages.append(usage)
-
-    # Add custom items to the DataFrame
-    for i in range(len(custom_items)):
-        bau_data = pd.concat(
-            [bau_data, pd.DataFrame({"Item": [custom_items[i]], "Daily Usage (Units)": [custom_usages[i]]})],
-            ignore_index=True
-        )
-        emission_factors[custom_items[i]] = custom_emission_factors[i]
-
-# Calculate emissions
 bau_data["Emission Factor (kg CO2e/unit)"] = bau_data["Item"].map(emission_factors)
-bau_data["Daily Emissions (kg CO2e)"] = bau_data["Daily Usage (Units)"].values * bau_data["Emission Factor (kg CO2e/unit)"].values
+bau_data["Daily Emissions (kg CO2e)"] = bau_data["Daily Usage (Units)"] * bau_data["Emission Factor (kg CO2e/unit)"]
+bau_data["Annual Emissions (kg CO2e)"] = bau_data["Daily Emissions (kg CO2e)"] * 365
 
-# Total emissions for BAU
+# Display BAS details
+st.write("### BAS Details")
+st.dataframe(bau_data[["Item", "Daily Usage (Units)", "Daily Emissions (kg CO2e)", "Annual Emissions (kg CO2e)"]])
+
+# Calculate total BAS emissions
 total_emissions_daily_bau = bau_data["Daily Emissions (kg CO2e)"].sum()
 total_emissions_yearly_bau = total_emissions_daily_bau * 365
-
-# Display BAU results
-st.subheader("BAU Results")
 st.write(f"**Total Daily Emissions (BAU):** {total_emissions_daily_bau:.2f} kg CO2e/day")
 st.write(f"**Total Annual Emissions (BAU):** {total_emissions_yearly_bau:.2f} kg CO2e/year")
 
@@ -76,29 +43,14 @@ st.write(f"**Total Annual Emissions (BAU):** {total_emissions_yearly_bau:.2f} kg
 st.subheader("Scenario Planning")
 num_scenarios = st.number_input("How many scenarios do you want to add?", min_value=1, step=1, value=1)
 
-# Generate a table for scenarios
+# Create a DataFrame for scenarios
 scenarios = pd.DataFrame(columns=["Scenario"] + default_items)
 scenarios["Scenario"] = [f"Scenario {i + 1}" for i in range(num_scenarios)]
-scenarios.loc[-1] = ["BAS"] + [100] * len(default_items)  # Add BAU as the first row
-scenarios.index = scenarios.index + 1  # Reindex
-scenarios.sort_index(inplace=True)
+scenarios.loc[:, default_items] = 100.0  # Default all percentages to 100%
 
-# Manually build table inputs
-st.write("Adjust the percentage values for each scenario (Default: 100%).")
-
-# Convert numeric columns to float to avoid mixed type errors
-edited_scenarios = scenarios.copy()
-edited_scenarios[default_items] = edited_scenarios[default_items].astype(float)
-
-for i in range(len(edited_scenarios)):
-    for col in default_items:
-        edited_scenarios.loc[i, col] = st.number_input(
-            f"{edited_scenarios.loc[i, 'Scenario']} - {col} (%)",
-            min_value=0.0,
-            max_value=200.0,  # Allow up to 200% usage
-            value=edited_scenarios.loc[i, col],
-            step=1.0
-        )
+# Display and allow user to edit the scenario table
+st.write("### Edit Scenario Percentages")
+edited_scenarios = st.experimental_data_editor(scenarios)
 
 # Process scenarios to calculate emissions
 results = []
