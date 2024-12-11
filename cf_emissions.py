@@ -1,3 +1,9 @@
+edited_scenario_df = st.data_editor(
+    scenario_df, 
+    use_container_width=True
+)
+
+
 import pandas as pd
 import streamlit as st
 
