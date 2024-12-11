@@ -1,5 +1,3 @@
-pip install --upgrade streamlit
-
 import pandas as pd
 import streamlit as st
 
