@@ -237,4 +237,3 @@ if selected_criteria:
     # After editing, `edited_criteria_df` contains the final user inputs
     # Further calculations or displays can be done here as needed.
 
-
