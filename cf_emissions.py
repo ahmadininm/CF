@@ -38,29 +38,37 @@ for i in range(len(bau_data)):
 # Option to add custom items
 st.subheader("Add Custom Items (Optional)")
 if st.checkbox("Add custom items?"):
-    custom_items = []
-    custom_emission_factors = []
-    custom_usages = []
-
     num_custom_items = st.number_input("How many custom items would you like to add?", min_value=1, step=1, value=1)
     for i in range(num_custom_items):
-        item_name = st.text_input(f"Custom Item {i + 1} Name:")
-        emission_factor = st.number_input(f"Custom Item {i + 1} Emission Factor (kg CO2e/unit):", min_value=0.0, step=0.01)
-        usage = st.number_input(f"Custom Item {i + 1} Daily Usage (Units):", min_value=0.0, step=0.1)
-        custom_items.append(item_name)
-        custom_emission_factors.append(emission_factor)
-        custom_usages.append(usage)
-
-    # Add custom items to the DataFrame
-    for i in range(len(custom_items)):
-        bau_data = pd.concat(
-            [bau_data, pd.DataFrame({"Item": [custom_items[i]], "Daily Usage (Units)": [custom_usages[i]]})],
-            ignore_index=True
+        item_name = st.text_input(f"Custom Item {i + 1} Name:", key=f"custom_item_name_{i}")
+        emission_factor = st.number_input(
+            f"Custom Item {i + 1} Emission Factor (kg CO2e/unit):", 
+            min_value=0.0000001, 
+            step=0.0000001, 
+            value=0.0000001,
+            key=f"custom_emission_factor_{i}"
         )
-        emission_factors[custom_items[i]] = custom_emission_factors[i]
+        usage = st.number_input(
+            f"Custom Item {i + 1} Daily Usage (Units):", 
+            min_value=0.0, 
+            step=0.1, 
+            value=0.0,
+            key=f"custom_usage_{i}"
+        )
+        # Add to BAU Data
+        new_row = pd.DataFrame({
+            "Item": [item_name],
+            "Daily Usage (Units)": [usage],
+            "Emission Factor (kg CO2e/unit)": [emission_factor]
+        })
+        bau_data = pd.concat([bau_data, new_row], ignore_index=True)
+        emission_factors[item_name] = emission_factor  # Add to emission factors dictionary
+
+# Fill missing emission factors in the DataFrame
+bau_data["Emission Factor (kg CO2e/unit)"] = bau_data["Item"].map(emission_factors)
+bau_data["Emission Factor (kg CO2e/unit)"] = bau_data["Emission Factor (kg CO2e/unit)"].fillna(0)
 
 # Calculate emissions for BAU
-bau_data["Emission Factor (kg CO2e/unit)"] = bau_data["Item"].map(emission_factors)
 bau_data["Daily Emissions (kg CO2e)"] = bau_data["Daily Usage (Units)"] * bau_data["Emission Factor (kg CO2e/unit)"]
 bau_data["Annual Emissions (kg CO2e)"] = bau_data["Daily Emissions (kg CO2e)"] * 365
 
@@ -85,13 +93,14 @@ scenario_inputs = []
 for i in range(num_scenarios):
     with st.expander(f"Scenario {i + 1}"):
         scenario = {"Scenario": f"Scenario {i + 1}"}
-        for item in default_items:
+        for item in default_items + [row["Item"] for _, row in bau_data.iterrows() if row["Item"] not in default_items]:
             scenario[item] = st.number_input(
                 f"{item} for Scenario {i + 1} (%)",
                 min_value=0.0,
                 max_value=200.0,
                 value=100.0,
-                step=1.0
+                step=1.0,
+                key=f"{item}_scenario_{i}"
             )
         scenario_inputs.append(scenario)
 
@@ -99,7 +108,7 @@ for i in range(num_scenarios):
 scenarios = pd.DataFrame(scenario_inputs)
 
 # Ensure column alignment between BAU data and scenario percentages
-scenarios = scenarios[["Scenario"] + default_items]
+scenarios = scenarios[["Scenario"] + bau_data["Item"].tolist()]
 
 # Process scenarios and calculate emissions
 results = []
@@ -108,7 +117,7 @@ total_emissions_yearly_bau = total_emissions_daily_bau * 365
 
 for _, row in scenarios.iterrows():
     scenario_name = row["Scenario"]
-    usage_percentages = row[default_items].values / 100  # Convert percentages to fractions
+    usage_percentages = row[bau_data["Item"]].values / 100  # Convert percentages to fractions
     daily_emissions = sum(
         bau_data["Daily Usage (Units)"].values * usage_percentages * bau_data["Emission Factor (kg CO2e/unit)"].values
     )
@@ -130,7 +139,8 @@ st.subheader("Scenario Results")
 st.dataframe(results_df)
 
 # Visualize scenario emissions and savings
-st.bar_chart(results_df.set_index("Scenario")[["Total (kg CO2e/day)", "CO2e Saving compared to BAS (%)"]])
+st.subheader("CO2 Savings Compared to BAS (%)")
+st.bar_chart(results_df.set_index("Scenario")["CO2e Saving compared to BAS (%)"])
 
 # Option to download results as a CSV
 st.download_button(
