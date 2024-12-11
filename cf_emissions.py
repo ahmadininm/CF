@@ -1,9 +1,3 @@
-edited_scenario_df = st.data_editor(
-    scenario_df, 
-    use_container_width=True
-)
-
-
 import pandas as pd
 import streamlit as st
 
@@ -14,12 +8,12 @@ default_items = ["Gas (kWh/day)", "Electricity (kWh/day)",
 
 # Emission Factors (hidden from the user)
 emission_factors = {
-    "Gas (kWh/day)": 0.182928926,        # kg CO2e/kWh
-    "Electricity (kWh/day)": 0.207074289,  # kg CO2e/kWh
-    "Nitrogen (cubic m/day)": 0.090638487,  # kg CO2e/m³
-    "Hydrogen (cubic m/day)": 1.07856,     # kg CO2e/m³
-    "Argon (cubic m/day)": 6.342950515,    # kg CO2e/m³
-    "Helium (cubic m/day)": 0.660501982    # kg CO2e/m³
+    "Gas (kWh/day)": 0.182928926,         # kg CO2e/kWh
+    "Electricity (kWh/day)": 0.207074289, # kg CO2e/kWh
+    "Nitrogen (cubic m/day)": 0.090638487,# kg CO2e/m³
+    "Hydrogen (cubic m/day)": 1.07856,    # kg CO2e/m³
+    "Argon (cubic m/day)": 6.342950515,   # kg CO2e/m³
+    "Helium (cubic m/day)": 0.660501982   # kg CO2e/m³
 }
 
 # Streamlit Application
@@ -99,8 +93,8 @@ st.write("Please adjust the percentages in the table below as needed. "
          "For example, entering '110' will represent a 10% increase from BAU usage, "
          "while '85' represents a 15% decrease.")
 
-# Ensure you have the correct version of Streamlit for st.experimental_data_editor or st.data_editor
-edited_scenario_df = st.experimental_data_editor(
+# Now that scenario_df is defined, we can use st.data_editor or st.experimental_data_editor
+edited_scenario_df = st.data_editor(
     scenario_df, 
     use_container_width=True
 )
