@@ -170,19 +170,15 @@ selected_criteria = st.multiselect(
     list(criteria_options.keys())
 )
 
-# If user selected "Other", ask for custom criterion name and a yes/no question
+# If user selected "Other", ask for custom criterion name and description
 if "Other" in selected_criteria:
     other_name = st.text_input("Enter the name for the 'Other' criterion:")
-    other_scale = st.radio("Does a higher number represent a more beneficial (e.g., more sustainable) outcome for this 'Other' criterion?", ["Yes", "No"])
+    other_description = st.text_input("Enter a brief description or scale details for this 'Other' criterion:")
     if other_name.strip():
         # Replace "Other" with user-defined name
         selected_criteria.remove("Other")
         selected_criteria.append(other_name.strip())
-        # Include a note based on their response
-        if other_scale == "Yes":
-            criteria_options[other_name.strip()] = "1-10 scale, higher = more beneficial"
-        else:
-            criteria_options[other_name.strip()] = "1-10 scale, higher = less beneficial (inverse interpretation)"
+        criteria_options[other_name.strip()] = other_description
 
 # Show descriptions for selected criteria (with HTML enabled)
 for crit in selected_criteria:
@@ -198,7 +194,7 @@ if selected_criteria:
     for c in selected_criteria:
         criteria_df[c] = 0
 
-    st.write("Please assign values for each selected criterion to each scenario. Double-click a cell to edit. For (1-10) criteria, only enter values between 1 and 10.")
+    st.write("Please assign values for each selected criterion to each scenario. Double-click a cell to edit. Note: For criteria with a (1-10) scale, please enter values between 1 and 10 only.")
 
     # Determine which criteria are scale-based (1-10) and which are free input
     scale_criteria = {
@@ -207,10 +203,6 @@ if selected_criteria:
         "Risk for Operations", "Impact on Product Quality", "Customer and Stakeholder Alignment",
         "Priority for our organisation"
     }
-
-    # Also consider the "Other" criterion if added as scale-based (since we said 1-10 scale)
-    if other_name.strip():
-        scale_criteria.add(other_name.strip())
 
     # Create column configs for st.data_editor if available (Streamlit 1.22+)
     column_config = {}
