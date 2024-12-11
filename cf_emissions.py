@@ -82,7 +82,7 @@ st.bar_chart(bau_data.set_index("Item")["Daily Emissions (kg CO2e)"], use_contai
 
 # Scenario Planning
 st.subheader("Scenario Planning")
-st.write("Modify the default percentages (100%) to simulate changes in material and energy usage. "
+st.write("Modify the default percentages (100%) to simulate changes in material and energy usage compared to BAU. "
          "For example, changing the value to 110% increases the usage by 10%, and setting it to 85% "
          "reduces it by 15%.")
 
@@ -92,10 +92,11 @@ num_scenarios = st.number_input("How many scenarios do you want to add?", min_va
 scenario_inputs = []
 for i in range(num_scenarios):
     with st.expander(f"Scenario {i + 1}"):
-        scenario = {"Scenario": f"Scenario {i + 1}"}
+        scenario_name = st.text_input(f"Enter name for Scenario {i + 1}:", value=f"Scenario {i + 1}")
+        scenario = {"Scenario": scenario_name}
         for item in default_items + [row["Item"] for _, row in bau_data.iterrows() if row["Item"] not in default_items]:
             scenario[item] = st.number_input(
-                f"{item} for Scenario {i + 1} (%)",
+                f"{item} for {scenario_name} (%)",
                 min_value=0.0,
                 max_value=200.0,
                 value=100.0,
