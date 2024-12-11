@@ -134,8 +134,11 @@ for _, row in scenarios.iterrows():
         "CO2e Saving compared to BAS (%)": co2_saving_percent
     })
 
-# Convert results to a DataFrame and display
+# Convert results to a DataFrame and adjust the index to start at 1
 results_df = pd.DataFrame(results)
+results_df.index = range(1, len(results_df) + 1)
+
+# Display the results
 st.subheader("Scenario Results")
 st.dataframe(results_df)
 
