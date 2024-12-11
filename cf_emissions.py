@@ -126,6 +126,8 @@ for col in edited_scenario_df.columns[1:]:
     })
 
 results_df = pd.DataFrame(results)
+# Reindex the results to start from 1
+results_df.index = range(1, len(results_df) + 1)
 
 st.write("### Scenario Results")
 st.dataframe(results_df)
