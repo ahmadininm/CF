@@ -98,6 +98,9 @@ for i in range(num_scenarios):
 # Convert scenario inputs into a DataFrame
 scenarios = pd.DataFrame(scenario_inputs)
 
+# Ensure column alignment between BAU data and scenario percentages
+scenarios = scenarios[["Scenario"] + default_items]
+
 # Process scenarios and calculate emissions
 results = []
 total_emissions_daily_bau = bau_data["Daily Emissions (kg CO2e)"].sum()
