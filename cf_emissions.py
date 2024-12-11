@@ -61,7 +61,7 @@ if st.checkbox("Add custom items?"):
 
 # Calculate emissions
 bau_data["Emission Factor (kg CO2e/unit)"] = bau_data["Item"].map(emission_factors)
-bau_data["Daily Emissions (kg CO2e)"] = bau_data["Daily Usage (Units)"] * bau_data["Emission Factor (kg CO2e/unit)"]
+bau_data["Daily Emissions (kg CO2e)"] = bau_data["Daily Usage (Units)"].values * bau_data["Emission Factor (kg CO2e/unit)"].values
 
 # Total emissions for BAU
 total_emissions_daily_bau = bau_data["Daily Emissions (kg CO2e)"].sum()
@@ -83,26 +83,18 @@ scenarios.loc[-1] = ["BAS"] + [100] * len(default_items)  # Add BAU as the first
 scenarios.index = scenarios.index + 1  # Reindex
 scenarios.sort_index(inplace=True)
 
-# Allow user to edit percentages manually
+# Allow user to edit the table as a whole
 st.write("Adjust the percentage values for each scenario. (Default: 100%)")
-edited_scenarios = scenarios.copy()
-
-for i, row in scenarios.iterrows():
-    for col in default_items:
-        edited_scenarios.at[i, col] = st.number_input(
-            f"{row['Scenario']} - {col} (%)", 
-            min_value=0.0, 
-            max_value=200.0,  # Allow values above 100% for overuse
-            step=1.0, 
-            value=float(row[col])
-        )
+edited_scenarios = st.experimental_data_editor(scenarios)
 
 # Process scenarios to calculate emissions
 results = []
 for i, row in edited_scenarios.iterrows():
     scenario_name = row["Scenario"]
     usage_percentages = row[default_items].values / 100  # Convert percentages to fractions
-    daily_emissions = sum(bau_data["Daily Usage (Units)"] * usage_percentages * bau_data["Emission Factor (kg CO2e/unit)"])
+    daily_emissions = sum(
+        bau_data["Daily Usage (Units)"].values * usage_percentages * bau_data["Emission Factor (kg CO2e/unit)"].values
+    )
     yearly_emissions = daily_emissions * 365
     co2_saving_kg = total_emissions_yearly_bau - yearly_emissions
     co2_saving_percent = (co2_saving_kg / total_emissions_yearly_bau) * 100 if total_emissions_yearly_bau != 0 else 0
