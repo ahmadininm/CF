@@ -84,13 +84,13 @@ st.bar_chart(bau_data.set_index("Item")["Daily Emissions (kg CO2e)"], use_contai
 st.subheader("Scenario Planning")
 num_scenarios = st.number_input("How many scenarios do you want to add?", min_value=1, step=1, value=1)
 
-# Build a DataFrame for scenarios:
-# Row 0: "Scenarios" in Item column, and scenario names in scenario columns.
-# Rows 1+: items with default 100%.
+# Build scenario DataFrame:
+# Row 0: "Scenarios" in Item column, and scenario names in scenario columns
+# Rows 1+: items with default 100%
 scenario_columns = ["Item"] + [f"Scenario {i+1}" for i in range(num_scenarios)]
-
 scenario_data = []
-# First row: scenario names
+
+# First row for scenario names
 name_row = ["Scenarios"] + [f"Scenario {i+1}" for i in range(num_scenarios)]
 scenario_data.append(name_row)
 
@@ -101,32 +101,43 @@ for item in bau_data["Item"]:
 
 scenario_df = pd.DataFrame(scenario_data, columns=scenario_columns)
 
-st.write("Please edit the scenario names in the first row and their usage percentages in the rows below.")
-st.write("For example, changing a percentage to '110' represents a 10% increase from BAU usage, and '85' represents a 15% decrease.")
+st.write("Edit scenario names in the top row and percentages for each item. Double-click a cell to edit.")
+st.write("For example, entering '110' means 10% increase from BAU, '85' means 15% decrease.")
+
+# Make all scenario columns editable text so user can change scenario names and percentages freely.
+# We'll parse percentages later.
+column_config = {
+    "Item": st.column_config.TextColumn(label="Item", disabled=True)
+}
+for sc in scenario_columns:
+    if sc != "Item":
+        column_config[sc] = st.column_config.TextColumn(label=sc)
 
 edited_scenario_df = st.data_editor(
-    scenario_df, 
+    scenario_df,
     use_container_width=True,
-    hide_index=True
+    hide_index=True,
+    column_config=column_config
 )
 
 # Extract scenario names from the first row (excluding the Item column)
 scenario_names = edited_scenario_df.iloc[0, 1:].tolist()
 
-# Extract usage percentages (all rows except the first, all columns except Item)
+# Extract usage percentages (all rows except the first, all scenario columns except Item)
 percentage_data = edited_scenario_df.iloc[1:, 1:]
 
-# Convert percentage data to numeric (in case they are strings)
+# Convert scenario percentages to numeric (strings become floats, non-numeric become NaN)
 percentage_data = percentage_data.apply(pd.to_numeric, errors='coerce')
 
 items = edited_scenario_df.iloc[1:, 0].tolist()  # item names
-
-# Recalculate emissions for each scenario
-results = []
 bau_items_order = bau_data.set_index("Item").loc[items]
 
+results = []
 for i, scenario_name in enumerate(scenario_names):
     usage_percentage = percentage_data.iloc[:, i].values / 100.0
+    # If any non-numeric values were entered, they'll be NaN. Replace NaN with 0 or handle as needed:
+    usage_percentage = pd.Series(usage_percentage).fillna(0).values
+    
     scenario_daily_emissions = (bau_items_order["Daily Usage (Units)"].values 
                                 * usage_percentage 
                                 * bau_items_order["Emission Factor (kg CO2e/unit)"].values).sum()
