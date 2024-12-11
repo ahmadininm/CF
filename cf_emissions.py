@@ -142,3 +142,55 @@ st.download_button(
     file_name="scenario_results.csv",
     mime="text/csv"
 )
+
+
+# Ask about additional criteria
+st.write("Apart from the environmental impact (e.g., CO₂ saved) calculated above, which of the following criteria are also important to your organisation? Please select all that apply, and then specify their values for each scenario.")
+
+# Criteria options with brief descriptions
+criteria_options = {
+    "Technical Feasibility": "1=very low feasibility (unproven/complex), 10=very high feasibility (mature, no adjustments)",
+    "Supplier Reliability and Technology Readiness": "1=unreliable/immature tech, 10=fully reliable & proven",
+    "Implementation Complexity": "1=extremely complex, 10=plug-and-play, easy",
+    "Scalability": "1=very hard to scale, 10=modular & easy to scale",
+    "Maintenance Requirements": "1=very high maintenance, 10=almost maintenance-free",
+    "Regulatory Compliance": "1=high risk of non-compliance, 10=exceeds requirements",
+    "Risk for Workforce Safety": "1=significant safety risks, 10=very low risk",
+    "Risk for Operations": "1=extremely high operational risk, 10=minimal/no impact",
+    "Impact on Product Quality": "1=reduces quality, 10=enhances quality",
+    "Customer and Stakeholder Alignment": "1=low interest, 10=highly aligned",
+    "Priority for our organisation": "1=low priority, 10=top priority",
+    "Initial investment (£)": "Upfront cost needed to implement",
+    "Return on Investment (ROI)(years)": "Time (in years) to recover initial cost"
+}
+
+# Let user select criteria
+selected_criteria = st.multiselect(
+    "Select the criteria you want to consider:",
+    list(criteria_options.keys())
+)
+
+# Show brief descriptions for selected criteria
+for crit in selected_criteria:
+    st.write(f"**{crit}:** {criteria_options[crit]}")
+
+# If criteria selected, display an editable table for scenarios vs criteria
+if selected_criteria:
+    # Create a DataFrame with scenarios as rows and selected criteria as columns
+    scenario_names = results_df["Scenario"].tolist()
+    criteria_df = pd.DataFrame(columns=["Scenario"] + selected_criteria)
+    criteria_df["Scenario"] = scenario_names
+
+    # Initialize all values to a default, e.g., 0
+    for c in selected_criteria:
+        criteria_df[c] = 0
+
+    st.write("Please assign values for each selected criterion to each scenario. Double-click a cell to edit.")
+    try:
+        edited_criteria_df = st.data_editor(criteria_df, use_container_width=True)
+    except AttributeError:
+        edited_criteria_df = st.experimental_data_editor(criteria_df, use_container_width=True)
+
+    # After editing, you have `edited_criteria_df` with user inputs for criteria per scenario.
+    # You can perform further calculations or display results as needed.
+
