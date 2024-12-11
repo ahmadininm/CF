@@ -83,9 +83,18 @@ scenarios.loc[-1] = ["BAS"] + [100] * len(default_items)  # Add BAU as the first
 scenarios.index = scenarios.index + 1  # Reindex
 scenarios.sort_index(inplace=True)
 
-# Allow user to edit the table as a whole
-st.write("Adjust the percentage values for each scenario. (Default: 100%)")
-edited_scenarios = st.experimental_data_editor(scenarios)
+# Manually build table inputs
+st.write("Adjust the percentage values for each scenario (Default: 100%).")
+edited_scenarios = scenarios.copy()
+for i in range(len(edited_scenarios)):
+    for col in default_items:
+        edited_scenarios.loc[i, col] = st.number_input(
+            f"{edited_scenarios.loc[i, 'Scenario']} - {col} (%)",
+            min_value=0.0,
+            max_value=200.0,  # Allow up to 200% usage
+            value=edited_scenarios.loc[i, col],
+            step=1.0
+        )
 
 # Process scenarios to calculate emissions
 results = []
