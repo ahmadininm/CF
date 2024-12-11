@@ -85,7 +85,11 @@ scenarios.sort_index(inplace=True)
 
 # Manually build table inputs
 st.write("Adjust the percentage values for each scenario (Default: 100%).")
+
+# Convert numeric columns to float to avoid mixed type errors
 edited_scenarios = scenarios.copy()
+edited_scenarios[default_items] = edited_scenarios[default_items].astype(float)
+
 for i in range(len(edited_scenarios)):
     for col in default_items:
         edited_scenarios.loc[i, col] = st.number_input(
