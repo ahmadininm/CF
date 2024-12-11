@@ -85,7 +85,8 @@ scenarios.sort_index(inplace=True)
 
 # Allow the user to edit the table
 st.write("Adjust the percentage values for each scenario. (Default: 100%)")
-edited_scenarios = st.experimental_data_editor(scenarios, num_rows="dynamic")
+edited_scenarios = st.experimental_data_editor(scenarios)
+
 
 # Process scenarios to calculate emissions
 results = []
