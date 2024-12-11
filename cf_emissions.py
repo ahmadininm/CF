@@ -143,7 +143,6 @@ st.download_button(
     mime="text/csv"
 )
 
-
 # Ask about additional criteria
 st.write("Apart from the environmental impact (e.g., CO₂ saved) calculated above, which of the following criteria are also important to your organisation? Please select all that apply, and then specify their values for each scenario.")
 
