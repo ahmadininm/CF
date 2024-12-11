@@ -19,42 +19,52 @@ emission_factors = {
 # Streamlit Application
 st.title("Business as Usual (BAU) Carbon Emission Calculator")
 
-# Input BAU values (predefined for simplicity)
-st.subheader("Business as Usual (BAU) Inputs")
+# Input BAU values
+st.subheader("Enter Daily Usage for Business As Usual (BAU)")
 bau_data = pd.DataFrame({
     "Item": default_items,
-    "Daily Usage (Units)": [3000, 1000, 500, 200, 100, 50]  # Example default values
+    "Daily Usage (Units)": [0] * len(default_items)  # Empty starting values
 })
+
+# Collect BAU inputs using Streamlit widgets
+for i in range(len(bau_data)):
+    bau_data.loc[i, "Daily Usage (Units)"] = st.number_input(
+        f"{bau_data['Item'][i]}:",
+        min_value=0.0,
+        step=0.1,
+        value=0.0
+    )
+
+# Calculate emissions for BAU
 bau_data["Emission Factor (kg CO2e/unit)"] = bau_data["Item"].map(emission_factors)
 bau_data["Daily Emissions (kg CO2e)"] = bau_data["Daily Usage (Units)"] * bau_data["Emission Factor (kg CO2e/unit)"]
 bau_data["Annual Emissions (kg CO2e)"] = bau_data["Daily Emissions (kg CO2e)"] * 365
 
-# Display BAS details
-st.write("### BAS Details")
-st.dataframe(bau_data[["Item", "Daily Usage (Units)", "Daily Emissions (kg CO2e)", "Annual Emissions (kg CO2e)"]])
-
-# Calculate total BAS emissions
-total_emissions_daily_bau = bau_data["Daily Emissions (kg CO2e)"].sum()
-total_emissions_yearly_bau = total_emissions_daily_bau * 365
-st.write(f"**Total Daily Emissions (BAU):** {total_emissions_daily_bau:.2f} kg CO2e/day")
-st.write(f"**Total Annual Emissions (BAU):** {total_emissions_yearly_bau:.2f} kg CO2e/year")
+# Display BAU summary
+st.write("### BAU Results")
+st.write(f"**Total Daily Emissions (BAU):** {bau_data['Daily Emissions (kg CO2e)'].sum():.2f} kg CO2e/day")
+st.write(f"**Total Annual Emissions (BAU):** {bau_data['Annual Emissions (kg CO2e)'].sum():.2f} kg CO2e/year")
 
 # Scenario Planning
 st.subheader("Scenario Planning")
 num_scenarios = st.number_input("How many scenarios do you want to add?", min_value=1, step=1, value=1)
 
-# Create a DataFrame for scenarios
-scenarios = pd.DataFrame(columns=["Scenario"] + default_items)
+# Create a DataFrame for scenarios with default values
+scenario_columns = ["Scenario"] + default_items
+scenarios = pd.DataFrame(columns=scenario_columns)
 scenarios["Scenario"] = [f"Scenario {i + 1}" for i in range(num_scenarios)]
-scenarios.loc[:, default_items] = 100.0  # Default all percentages to 100%
+scenarios.loc[:, default_items] = 100.0  # Default percentages to 100%
 
-# Display and allow user to edit the scenario table
-st.write("### Edit Scenario Percentages")
-edited_scenarios = st.experimental_data_editor(scenarios)
+# Editable table for scenario inputs
+st.write("### Adjust Scenario Percentages (Default: 100%)")
+edited_scenarios = st.experimental_data_editor(scenarios, num_rows="dynamic")
 
-# Process scenarios to calculate emissions
+# Process scenarios and calculate emissions
 results = []
-for i, row in edited_scenarios.iterrows():
+total_emissions_daily_bau = bau_data["Daily Emissions (kg CO2e)"].sum()
+total_emissions_yearly_bau = total_emissions_daily_bau * 365
+
+for _, row in edited_scenarios.iterrows():
     scenario_name = row["Scenario"]
     usage_percentages = row[default_items].values / 100  # Convert percentages to fractions
     daily_emissions = sum(
@@ -72,7 +82,7 @@ for i, row in edited_scenarios.iterrows():
         "CO2e Saving compared to BAS (%)": co2_saving_percent
     })
 
-# Convert results to a DataFrame and display
+# Display results
 results_df = pd.DataFrame(results)
 st.subheader("Scenario Results")
 st.dataframe(results_df)
