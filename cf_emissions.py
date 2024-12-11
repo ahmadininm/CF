@@ -144,23 +144,24 @@ st.download_button(
 )
 
 # Ask about additional criteria
-st.write("Apart from the environmental impact (e.g., CO₂ saved) calculated above, which of the following criteria are also important to your organisation? Please select all that apply, and then specify their values for each scenario.")
+st.write("Apart from the environmental impact (e.g., CO₂ saved) calculated above, which of the following criteria are also important to your organisation? Please select all that apply and then assign values for each scenario.")
 
-# Criteria options with brief descriptions
+# Criteria options with brief, colour-coded descriptions for the 1-10 scale criteria
 criteria_options = {
-    "Technical Feasibility": "1=very low feasibility (unproven/complex), 10=very high feasibility (mature, no adjustments)",
-    "Supplier Reliability and Technology Readiness": "1=unreliable/immature tech, 10=fully reliable & proven",
-    "Implementation Complexity": "1=extremely complex, 10=plug-and-play, easy",
-    "Scalability": "1=very hard to scale, 10=modular & easy to scale",
-    "Maintenance Requirements": "1=very high maintenance, 10=almost maintenance-free",
-    "Regulatory Compliance": "1=high risk of non-compliance, 10=exceeds requirements",
-    "Risk for Workforce Safety": "1=significant safety risks, 10=very low risk",
-    "Risk for Operations": "1=extremely high operational risk, 10=minimal/no impact",
-    "Impact on Product Quality": "1=reduces quality, 10=enhances quality",
-    "Customer and Stakeholder Alignment": "1=low interest, 10=highly aligned",
-    "Priority for our organisation": "1=low priority, 10=top priority",
-    "Initial investment (£)": "Upfront cost needed to implement",
-    "Return on Investment (ROI)(years)": "Time (in years) to recover initial cost"
+    "Technical Feasibility": "<span style='color:red;'>1-4: low feasibility</span>, <span style='color:orange;'>5-6: moderate</span>, <span style='color:green;'>7-10: high feasibility</span>",
+    "Supplier Reliability and Technology Readiness": "<span style='color:red;'>1-4: unreliable/immature</span>, <span style='color:orange;'>5-6: mostly reliable</span>, <span style='color:green;'>7-10: fully reliable & proven</span>",
+    "Implementation Complexity": "<span style='color:red;'>1-4: very complex</span>, <span style='color:orange;'>5-6: moderate complexity</span>, <span style='color:green;'>7-10: easy to implement</span>",
+    "Scalability": "<span style='color:red;'>1-4: hard to scale</span>, <span style='color:orange;'>5-6: moderate</span>, <span style='color:green;'>7-10: easy to scale</span>",
+    "Maintenance Requirements": "<span style='color:red;'>1-4: high maintenance</span>, <span style='color:orange;'>5-6: moderate</span>, <span style='color:green;'>7-10: low maintenance</span>",
+    "Regulatory Compliance": "<span style='color:red;'>1-4: risk of non-compliance</span>, <span style='color:orange;'>5-6: mostly compliant</span>, <span style='color:green;'>7-10: fully compliant or beyond</span>",
+    "Risk for Workforce Safety": "<span style='color:red;'>1-4: significant safety risks</span>, <span style='color:orange;'>5-6: moderate risks</span>, <span style='color:green;'>7-10: very low risk</span>",
+    "Risk for Operations": "<span style='color:red;'>1-4: high operational risk</span>, <span style='color:orange;'>5-6: moderate risk</span>, <span style='color:green;'>7-10: minimal risk</span>",
+    "Impact on Product Quality": "<span style='color:red;'>1-4: reduces quality</span>, <span style='color:orange;'>5-6: acceptable</span>, <span style='color:green;'>7-10: improves or maintains quality</span>",
+    "Customer and Stakeholder Alignment": "<span style='color:red;'>1-4: low alignment</span>, <span style='color:orange;'>5-6: moderate</span>, <span style='color:green;'>7-10: high alignment</span>",
+    "Priority for our organisation": "<span style='color:red;'>1-4: low priority</span>, <span style='color:orange;'>5-6: moderate</span>, <span style='color:green;'>7-10: top priority</span>",
+    "Initial investment (£)": "Enter the upfront cost needed (no scale limit).",
+    "Return on Investment (ROI)(years)": "Enter the time (in years) to recover the initial cost (no scale limit).",
+    "Other": "If your desired criterion is not listed, select this and specify it."
 }
 
 # Let user select criteria
@@ -169,27 +170,63 @@ selected_criteria = st.multiselect(
     list(criteria_options.keys())
 )
 
-# Show brief descriptions for selected criteria
+# If user selected "Other", ask for custom criterion name and description
+if "Other" in selected_criteria:
+    other_name = st.text_input("Enter the name for the 'Other' criterion:")
+    other_description = st.text_input("Enter a brief description or scale details for this 'Other' criterion:")
+    if other_name.strip():
+        # Replace "Other" with user-defined name
+        selected_criteria.remove("Other")
+        selected_criteria.append(other_name.strip())
+        criteria_options[other_name.strip()] = other_description
+
+# Show descriptions for selected criteria (with HTML enabled)
 for crit in selected_criteria:
-    st.write(f"**{crit}:** {criteria_options[crit]}")
+    st.markdown(f"**{crit}:** {criteria_options[crit]}", unsafe_allow_html=True)
 
 # If criteria selected, display an editable table for scenarios vs criteria
 if selected_criteria:
-    # Create a DataFrame with scenarios as rows and selected criteria as columns
     scenario_names = results_df["Scenario"].tolist()
     criteria_df = pd.DataFrame(columns=["Scenario"] + selected_criteria)
     criteria_df["Scenario"] = scenario_names
 
-    # Initialize all values to a default, e.g., 0
+    # Initialize all values to 0
     for c in selected_criteria:
         criteria_df[c] = 0
 
-    st.write("Please assign values for each selected criterion to each scenario. Double-click a cell to edit.")
+    st.write("Please assign values for each selected criterion to each scenario. Double-click a cell to edit. Note: For criteria with a (1-10) scale, please enter values between 1 and 10 only.")
+
+    # Determine which criteria are scale-based (1-10) and which are free input
+    scale_criteria = {
+        "Technical Feasibility", "Supplier Reliability and Technology Readiness", "Implementation Complexity",
+        "Scalability", "Maintenance Requirements", "Regulatory Compliance", "Risk for Workforce Safety",
+        "Risk for Operations", "Impact on Product Quality", "Customer and Stakeholder Alignment",
+        "Priority for our organisation"
+    }
+
+    # Create column configs for st.data_editor if available (Streamlit 1.22+)
+    column_config = {}
+    column_config["Scenario"] = st.column_config.TextColumn("Scenario", disabled=True)
+    for crit in selected_criteria:
+        if crit in scale_criteria:
+            # Numeric column with 1-10 limits
+            column_config[crit] = st.column_config.NumberColumn(label=crit, min_value=1, max_value=10, step=1)
+        elif crit in ["Initial investment (£)", "Return on Investment (ROI)(years)"]:
+            # Numeric column with no strict limit
+            column_config[crit] = st.column_config.NumberColumn(label=crit)
+        else:
+            # Other criterion might not have a scale, assume free numeric input
+            column_config[crit] = st.column_config.NumberColumn(label=crit)
+
+    criteria_df.index = range(1, len(criteria_df) + 1)  # Start indexing from 1
+
     try:
-        edited_criteria_df = st.data_editor(criteria_df, use_container_width=True)
+        edited_criteria_df = st.data_editor(criteria_df, use_container_width=True, column_config=column_config)
     except AttributeError:
+        # If st.data_editor not available, fallback without column_config
         edited_criteria_df = st.experimental_data_editor(criteria_df, use_container_width=True)
 
-    # After editing, you have `edited_criteria_df` with user inputs for criteria per scenario.
-    # You can perform further calculations or display results as needed.
+    # After editing, `edited_criteria_df` contains the final user inputs
+    # Further calculations or displays can be done here as needed.
+
 
