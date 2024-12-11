@@ -93,10 +93,9 @@ st.write("Please adjust the percentages in the table below as needed. "
          "For example, entering '110' will represent a 10% increase from BAU usage, "
          "while '85' represents a 15% decrease.")
 
-# Display the editable table
+# Ensure you have the correct version of Streamlit for st.experimental_data_editor or st.data_editor
 edited_scenario_df = st.experimental_data_editor(
     scenario_df, 
-    num_rows="dynamic",
     use_container_width=True
 )
 
@@ -116,22 +115,25 @@ total_emissions_yearly_bau = total_emissions_daily_bau * 365
 co2_saving_kg = total_emissions_yearly_bau - yearly_emissions_scenario
 co2_saving_percent = (co2_saving_kg / total_emissions_yearly_bau) * 100 if total_emissions_yearly_bau != 0 else 0
 
-# Display results
+# Display scenario results
 st.write("### Scenario Results")
 st.write(f"**Total Daily Emissions (Scenario):** {daily_emissions_scenario:.2f} kg CO2e/day")
 st.write(f"**Total Annual Emissions (Scenario):** {yearly_emissions_scenario:.2f} kg CO2e/year")
 st.write(f"**CO2e Saving compared to BAU (kg CO2e/year):** {co2_saving_kg:.2f} kg CO2e")
 st.write(f"**CO2e Saving compared to BAU (%):** {co2_saving_percent:.2f}%")
 
+# Option to download scenario results as a CSV
+scenario_results = pd.DataFrame({
+    "Scenario": ["Editable Scenario"],
+    "Total Daily Emissions (kg CO2e)": [daily_emissions_scenario],
+    "Total Annual Emissions (kg CO2e)": [yearly_emissions_scenario],
+    "CO2 Saving (kg CO2e/year)": [co2_saving_kg],
+    "CO2 Saving (%)": [co2_saving_percent]
+})
 
-# Visualize scenario emissions and savings
-st.subheader("CO2 Savings Compared to BAS (%)")
-st.bar_chart(results_df.set_index("Scenario")["CO2e Saving compared to BAS (%)"])
-
-# Option to download results as a CSV
 st.download_button(
     label="Download Scenario Results as CSV",
-    data=results_df.to_csv(index=False),
+    data=scenario_results.to_csv(index=False),
     file_name="scenario_results.csv",
     mime="text/csv"
 )
