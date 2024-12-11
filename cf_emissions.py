@@ -46,19 +46,21 @@ if st.checkbox("Add custom items?"):
     for i in range(num_custom_items):
         item_name = st.text_input(f"Custom Item {i + 1} Name:")
         emission_factor = st.number_input(f"Custom Item {i + 1} Emission Factor (kg CO2e/unit):", 
-                                          min_value=0.0000001, step=0.0000001)
-        usage = st.number_input(f"Custom Item {i + 1} Daily Usage (Units):", min_value=0.0, step=0.1)
+                                          min_value=0.0000001, step=0.0000001, value=0.0000001)
+        usage = st.number_input(f"Custom Item {i + 1} Daily Usage (Units):", min_value=0.0, step=0.1, value=0.0)
         custom_items.append(item_name)
         custom_emission_factors.append(emission_factor)
         custom_usages.append(usage)
 
     # Add custom items to the DataFrame
     for i in range(len(custom_items)):
-        new_row = pd.DataFrame({"Item": [custom_items[i]], 
-                                "Daily Usage (Units)": [custom_usages[i]], 
-                                "Emission Factor (kg CO2e/unit)": [custom_emission_factors[i]]})
+        new_row = pd.DataFrame({
+            "Item": [custom_items[i]],
+            "Daily Usage (Units)": [custom_usages[i]],
+            "Emission Factor (kg CO2e/unit)": [custom_emission_factors[i]]
+        })
         bau_data = pd.concat([bau_data, new_row], ignore_index=True)
-        emission_factors[custom_items[i]] = custom_emission_factors[i]
+        emission_factors[custom_items[i]] = custom_emission_factors[i]  # Add to emission factors dictionary
 
 # Calculate emissions for BAU
 bau_data["Emission Factor (kg CO2e/unit)"] = bau_data["Item"].map(emission_factors)
@@ -98,9 +100,6 @@ for i in range(num_scenarios):
 
 # Convert scenario inputs into a DataFrame
 scenarios = pd.DataFrame(scenario_inputs)
-
-# Ensure column alignment between BAU data and scenario percentages
-scenarios = scenarios[["Scenario"] + default_items]
 
 # Process scenarios and calculate emissions
 results = []
