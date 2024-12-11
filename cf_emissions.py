@@ -16,7 +16,9 @@ emission_factors = {
     "Helium (cubic m/day)": 0.660501982   # kg CO2e/m³
 }
 
-st.title("Business as Usual (BAU) Carbon Emission Calculator")
+# Main Title and Description
+st.title("Sustainability Decision Assistant")
+st.write("*A tool to prioritise scenarios for carbon savings and resource efficiency, enabling data-driven sustainable decisions.*")
 
 # Input BAU values
 st.subheader("Enter Daily Usage for Business As Usual (BAU)")
@@ -35,6 +37,7 @@ for i in range(len(bau_data)):
 
 # Option to add custom items
 st.subheader("Add Custom Items (Optional)")
+st.write("If there are any additional sources of emissions not accounted for above, you can add them here.")
 if st.checkbox("Add custom items?"):
     num_custom_items = st.number_input("How many custom items would you like to add?", min_value=1, step=1, value=1)
     for i in range(num_custom_items):
@@ -87,6 +90,7 @@ scenario_data = [ [item] + [100.0]*num_scenarios for item in bau_data["Item"] ]
 scenario_df = pd.DataFrame(scenario_data, columns=scenario_columns)
 
 st.write("Please adjust the percentages for each scenario. Double-click a cell to edit the value.")
+st.write("Percentages represent usage relative to BAU. For example, 90% means the item is used at 90% of its BAU amount, resulting in a 10% reduction.")
 # If st.data_editor is not available, use st.experimental_data_editor
 try:
     edited_scenario_df = st.data_editor(scenario_df, use_container_width=True)
