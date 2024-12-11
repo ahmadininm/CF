@@ -49,22 +49,31 @@ st.write(f"**Total Annual Emissions (BAU):** {bau_data['Annual Emissions (kg CO2
 st.subheader("Scenario Planning")
 num_scenarios = st.number_input("How many scenarios do you want to add?", min_value=1, step=1, value=1)
 
-# Create a DataFrame for scenarios with default values
-scenario_columns = ["Scenario"] + default_items
-scenarios = pd.DataFrame(columns=scenario_columns)
-scenarios["Scenario"] = [f"Scenario {i + 1}" for i in range(num_scenarios)]
-scenarios.loc[:, default_items] = 100.0  # Default percentages to 100%
-
-# Editable table for scenario inputs
+# Scenario input table simulation
+scenario_inputs = []
 st.write("### Adjust Scenario Percentages (Default: 100%)")
-edited_scenarios = st.experimental_data_editor(scenarios, num_rows="dynamic")
+for i in range(num_scenarios):
+    with st.expander(f"Scenario {i + 1}"):
+        scenario = {"Scenario": f"Scenario {i + 1}"}
+        for item in default_items:
+            scenario[item] = st.number_input(
+                f"{item} for Scenario {i + 1} (%)",
+                min_value=0.0,
+                max_value=200.0,
+                value=100.0,
+                step=1.0
+            )
+        scenario_inputs.append(scenario)
+
+# Convert scenario inputs into a DataFrame
+scenarios = pd.DataFrame(scenario_inputs)
 
 # Process scenarios and calculate emissions
 results = []
 total_emissions_daily_bau = bau_data["Daily Emissions (kg CO2e)"].sum()
 total_emissions_yearly_bau = total_emissions_daily_bau * 365
 
-for _, row in edited_scenarios.iterrows():
+for _, row in scenarios.iterrows():
     scenario_name = row["Scenario"]
     usage_percentages = row[default_items].values / 100  # Convert percentages to fractions
     daily_emissions = sum(
@@ -82,7 +91,7 @@ for _, row in edited_scenarios.iterrows():
         "CO2e Saving compared to BAS (%)": co2_saving_percent
     })
 
-# Display results
+# Convert results to a DataFrame and display
 results_df = pd.DataFrame(results)
 st.subheader("Scenario Results")
 st.dataframe(results_df)
