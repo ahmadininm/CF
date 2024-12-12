@@ -20,8 +20,7 @@ def main():
     # Retrieve OpenAI API key from Streamlit Secrets
     try:
         openai.api_key = st.secrets["OPENAI_API_KEY"]
-                # Add debug statement to verify the key
-        st.write("API Key:", st.secrets["OPENAI_API_KEY"])
+
 
     
     except KeyError:
