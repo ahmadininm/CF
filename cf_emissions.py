@@ -25,7 +25,7 @@ def main():
         st.stop()
 
 
-   
+   st.write("API Key:", st.secrets["OPENAI_API_KEY"])
     # ----------------------- BAU Inputs -----------------------
 
     st.subheader("Enter Daily Usage for Business As Usual (BAU)")
