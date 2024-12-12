@@ -138,7 +138,6 @@ for col in edited_scenario_df.columns[1:]:
     })
 
 results_df = pd.DataFrame(results)
-# Reindex the results to start from 1
 results_df.index = range(1, len(results_df) + 1)
 
 st.write("### Scenario Results")
@@ -155,14 +154,14 @@ st.download_button(
     mime="text/csv"
 )
 
-# Initialize other_name and other_scale to avoid NameError if "Other" not selected
+# Initialize other_name and other_scale
 other_name = ""
 other_scale = ""
 
 # Ask about additional criteria
 st.write("Apart from the environmental impact (e.g., CO₂ saved) calculated above, which of the following criteria are also important to your organisation? Please select all that apply and then assign values for each scenario.")
 
-# Criteria options with brief, colour-coded descriptions for the 1-10 scale criteria
+# Criteria options
 criteria_options = {
     "Technical Feasibility": "<span style='color:red;'>1-4: low feasibility</span>, <span style='color:orange;'>5-6: moderate</span>, <span style='color:green;'>7-10: high feasibility</span>",
     "Supplier Reliability and Technology Readiness": "<span style='color:red;'>1-4: unreliable/immature</span>, <span style='color:orange;'>5-6: mostly reliable</span>, <span style='color:green;'>7-10: fully reliable & proven</span>",
@@ -180,13 +179,11 @@ criteria_options = {
     "Other": "If your desired criterion is not listed, select this and specify it."
 }
 
-# Let user select criteria
 selected_criteria = st.multiselect(
     "Select the criteria you want to consider:",
     list(criteria_options.keys())
 )
 
-# If user selected "Other", ask for custom criterion name and a yes/no question
 if "Other" in selected_criteria:
     other_name = st.text_input("Enter the name for the 'Other' criterion:")
     other_scale = st.radio("Does a higher number represent a more beneficial (e.g., more sustainable) outcome for this 'Other' criterion?", ["Yes", "No"])
@@ -198,34 +195,27 @@ if "Other" in selected_criteria:
         else:
             criteria_options[other_name.strip()] = "1-10 scale, higher = less beneficial (inverse interpretation)"
 
-# Show descriptions for selected criteria (with HTML enabled)
 for crit in selected_criteria:
     st.markdown(f"**{crit}:** {criteria_options[crit]}", unsafe_allow_html=True)
 
-#####################
-# Minimal changes start here
-#####################
+# Minimal changes: get scenario_names from the scenario table rather than results_df
+# This ensures if there are multiple scenarios, they appear correctly.
+scenario_names = [col.replace(" (%)","") for col in edited_scenario_df.columns[1:]]
 
-# Track previous criteria selection
 if "prev_selected_criteria" not in st.session_state:
     st.session_state["prev_selected_criteria"] = []
 
-# Use criteria_data to store the table
 if "criteria_data" not in st.session_state:
     st.session_state["criteria_data"] = pd.DataFrame()
 
 if selected_criteria:
-    scenario_names = results_df["Scenario"].tolist()
-
-    # Only rebuild structure if criteria changed
+    # If criteria changed, adjust the data structure
     if set(selected_criteria) != set(st.session_state["prev_selected_criteria"]):
         criteria_df = st.session_state["criteria_data"].copy()
-
-        # If empty or scenario names changed, rebuild from scratch
         if criteria_df.empty or list(criteria_df["Scenario"]) != scenario_names:
             criteria_df = pd.DataFrame({"Scenario": scenario_names})
 
-        # Add new criteria columns if missing
+        # Add missing criteria columns
         for c in selected_criteria:
             if c not in criteria_df.columns and c != "Scenario":
                 criteria_df[c] = 0
@@ -238,10 +228,7 @@ if selected_criteria:
         st.session_state["criteria_data"] = criteria_df.copy()
         st.session_state["prev_selected_criteria"] = selected_criteria.copy()
     else:
-        # Criteria unchanged, use existing data
         criteria_df = st.session_state["criteria_data"].copy()
-
-    criteria_df.index = range(1, len(criteria_df) + 1)
 
     st.write("Please assign values for each selected criterion to each scenario. Double-click a cell to edit. For (1-10) criteria, only enter values between 1 and 10.")
 
@@ -272,13 +259,8 @@ if selected_criteria:
 
     st.session_state["criteria_data"] = edited_criteria_df.copy()
 else:
-    # If no criteria selected
     st.session_state["criteria_data"] = pd.DataFrame()
     st.session_state["prev_selected_criteria"] = []
-
-#####################
-# Minimal changes end here
-#####################
 
 # Scaling logic
 if selected_criteria and 'edited_criteria_df' in locals() and edited_criteria_df is not None and not edited_criteria_df.empty:
@@ -290,7 +272,7 @@ if selected_criteria and 'edited_criteria_df' in locals() and edited_criteria_df
     if "Initial investment (£)" in selected_criteria:
         inversion_criteria.append("Initial investment (£)")
 
-    if 'other_name' in locals() and other_name.strip():
+    if other_name.strip():
         if other_scale == "No":
             inversion_criteria.append(other_name.strip())
         else:
