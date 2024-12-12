@@ -289,6 +289,8 @@ def main():
         # Further calculations or displays can be done here as needed.
 
 
+
+
         # Only proceed if criteria were selected and edited_criteria_df is defined
         if selected_criteria and 'edited_criteria_df' in locals() and edited_criteria_df is not None and not edited_criteria_df.empty:
             if st.button("Run Model"):
