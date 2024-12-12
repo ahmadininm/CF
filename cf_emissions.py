@@ -314,15 +314,15 @@ if 'other_name' in locals() and other_name.strip():
         # other_scale == "Yes" means higher is better, so treat it as a scale criterion
         scale_criteria.add(other_name.strip())
 
-# Now scale each criterion
-for crit in selected_criteria:
-    values = scaled_criteria_df[crit].values.astype(float)
-    min_val = np.min(values)
-    max_val = np.max(values)
+                # Now scale each criterion
+                for crit in selected_criteria:
+                    values = scaled_criteria_df[crit].values.astype(float)
+                    min_val = np.min(values)
+                    max_val = np.max(values)
 
-    if crit in scale_criteria:
-        # Already 1-10 scale where higher is better. Just ensure values are valid.
-        pass
+                    if crit in scale_criteria:
+                        # Already 1-10 scale where higher is better. Just ensure values are valid.
+                        pass
 
                     elif crit in inversion_criteria:
                         # Invert scale: lower value -> 10, higher value -> 1
@@ -347,7 +347,3 @@ for crit in selected_criteria:
 
 if __name__ == "__main__":
     main()
-
-
-
-            
