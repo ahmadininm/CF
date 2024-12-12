@@ -4,7 +4,7 @@ import numpy as np
 import openai
 import json
 
-st.write(f"**OpenAI Package Version:** {openai.__version__}")
+
 
 
 def main():
