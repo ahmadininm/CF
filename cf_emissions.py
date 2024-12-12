@@ -191,10 +191,8 @@ if "Other" in selected_criteria:
     other_name = st.text_input("Enter the name for the 'Other' criterion:")
     other_scale = st.radio("Does a higher number represent a more beneficial (e.g., more sustainable) outcome for this 'Other' criterion?", ["Yes", "No"])
     if other_name.strip():
-        # Replace "Other" with user-defined name
         selected_criteria.remove("Other")
         selected_criteria.append(other_name.strip())
-        # Include a note based on their response
         if other_scale == "Yes":
             criteria_options[other_name.strip()] = "1-10 scale, higher = more beneficial"
         else:
@@ -204,37 +202,49 @@ if "Other" in selected_criteria:
 for crit in selected_criteria:
     st.markdown(f"**{crit}:** {criteria_options[crit]}", unsafe_allow_html=True)
 
-# Store criteria data in session_state to avoid resets
+#####################
+# Minimal changes start here
+#####################
+
+# Track previous criteria selection
+if "prev_selected_criteria" not in st.session_state:
+    st.session_state["prev_selected_criteria"] = []
+
+# Use criteria_data to store the table
 if "criteria_data" not in st.session_state:
     st.session_state["criteria_data"] = pd.DataFrame()
 
-# Only create or update criteria_df if criteria are selected
 if selected_criteria:
     scenario_names = results_df["Scenario"].tolist()
 
-    # Start with existing session data if available, else create new
-    if st.session_state["criteria_data"].empty:
-        criteria_df = pd.DataFrame(columns=["Scenario"] + selected_criteria)
-        criteria_df["Scenario"] = scenario_names
-        for c in selected_criteria:
-            if c not in criteria_df.columns:
-                criteria_df[c] = 0
-    else:
+    # Only rebuild structure if criteria changed
+    if set(selected_criteria) != set(st.session_state["prev_selected_criteria"]):
         criteria_df = st.session_state["criteria_data"].copy()
-        # Add new criteria if selected after the fact
+
+        # If empty or scenario names changed, rebuild from scratch
+        if criteria_df.empty or list(criteria_df["Scenario"]) != scenario_names:
+            criteria_df = pd.DataFrame({"Scenario": scenario_names})
+
+        # Add new criteria columns if missing
         for c in selected_criteria:
             if c not in criteria_df.columns and c != "Scenario":
                 criteria_df[c] = 0
-        # Remove criteria that were unselected
-        for c in criteria_df.columns:
+
+        # Remove any columns not in selected_criteria
+        for c in list(criteria_df.columns):
             if c != "Scenario" and c not in selected_criteria:
                 criteria_df.drop(columns=c, inplace=True)
 
-    criteria_df.index = range(1, len(criteria_df) + 1)  # Start indexing from 1
+        st.session_state["criteria_data"] = criteria_df.copy()
+        st.session_state["prev_selected_criteria"] = selected_criteria.copy()
+    else:
+        # Criteria unchanged, use existing data
+        criteria_df = st.session_state["criteria_data"].copy()
+
+    criteria_df.index = range(1, len(criteria_df) + 1)
 
     st.write("Please assign values for each selected criterion to each scenario. Double-click a cell to edit. For (1-10) criteria, only enter values between 1 and 10.")
 
-    # Determine which criteria are scale-based (1-10) and which are free input
     scale_criteria = {
         "Technical Feasibility", "Supplier Reliability and Technology Readiness", "Implementation Complexity",
         "Scalability", "Maintenance Requirements", "Regulatory Compliance", "Risk for Workforce Safety",
@@ -242,22 +252,17 @@ if selected_criteria:
         "Priority for our organisation"
     }
 
-    # Also consider the "Other" criterion if added as scale-based
     if other_name.strip() and other_name.strip() in selected_criteria and other_scale == "Yes":
         scale_criteria.add(other_name.strip())
 
-    # Create column configs
     column_config = {}
     column_config["Scenario"] = st.column_config.TextColumn("Scenario", disabled=True)
     for crit in selected_criteria:
         if crit in scale_criteria:
-            # Numeric column with 1-10 limits (no step to avoid input difficulties)
             column_config[crit] = st.column_config.NumberColumn(label=crit, min_value=1, max_value=10)
         elif crit in ["Initial investment (£)", "Return on Investment (ROI)(years)"]:
-            # Numeric column with no strict limit
             column_config[crit] = st.column_config.NumberColumn(label=crit)
         else:
-            # Other criterion might not have a scale, assume free numeric input
             column_config[crit] = st.column_config.NumberColumn(label=crit)
 
     try:
@@ -265,10 +270,15 @@ if selected_criteria:
     except AttributeError:
         edited_criteria_df = st.experimental_data_editor(criteria_df, use_container_width=True)
 
-    # Store updated criteria data
     st.session_state["criteria_data"] = edited_criteria_df.copy()
 else:
+    # If no criteria selected
     st.session_state["criteria_data"] = pd.DataFrame()
+    st.session_state["prev_selected_criteria"] = []
+
+#####################
+# Minimal changes end here
+#####################
 
 # Scaling logic
 if selected_criteria and 'edited_criteria_df' in locals() and edited_criteria_df is not None and not edited_criteria_df.empty:
@@ -292,17 +302,14 @@ if selected_criteria and 'edited_criteria_df' in locals() and edited_criteria_df
         max_val = np.max(values)
 
         if crit in scale_criteria:
-            # Already 1-10 scale, do nothing
             pass
         elif crit in inversion_criteria:
-            # Invert scale: lower value -> 10, higher value -> 1
             if max_val == min_val:
                 scaled_values = np.ones_like(values) * 10
             else:
                 scaled_values = 10 - 9 * (values - min_val) / (max_val - min_val)
             scaled_criteria_df[crit] = scaled_values
         else:
-            # Scale min to 1, max to 10 (higher is better)
             if max_val == min_val:
                 scaled_values = np.ones_like(values) * 10
             else:
