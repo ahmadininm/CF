@@ -1,3 +1,21 @@
+import sys
+import subprocess
+import pkg_resources
+
+# List of required packages
+required = {'openai'}
+installed = {pkg.key for pkg in pkg_resources.working_set}
+missing = required - installed
+
+if missing:
+    # Install missing packages
+    python = sys.executable
+    subprocess.check_call([python, '-m', 'pip', 'install', *missing])
+
+import openai
+
+
+
 import pandas as pd
 import streamlit as st
 import numpy as np
