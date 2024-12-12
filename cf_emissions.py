@@ -38,7 +38,8 @@ for i in range(len(bau_data)):
         f"{bau_data['Item'][i]}:",
         min_value=0.0,
         step=0.1,
-        value=0.0
+        value=0.0,
+        key=f"bau_input_{i}"
     )
 
 # Fill missing emission factors in the DataFrame
@@ -58,7 +59,7 @@ st.write(f"**Total Annual Emissions (BAU):** {total_annual_bau:.2f} kg CO₂e/ye
 
 # Scenario Planning
 st.subheader("Scenario Planning (Editable Table)")
-num_scenarios = st.number_input("How many scenarios do you want to add?", min_value=1, step=1, value=1)
+num_scenarios = st.number_input("How many scenarios do you want to add?", min_value=1, step=1, value=1, key="num_scenarios")
 
 # Use session_state to remember scenario_df
 if "scenario_data" not in st.session_state:
@@ -82,7 +83,8 @@ except AttributeError:
     edited_scenario_df = st.experimental_data_editor(scenario_df, use_container_width=True)
 
 # Update the scenario_data in session_state
-st.session_state["scenario_data"] = edited_scenario_df.copy()
+if not edited_scenario_df.equals(st.session_state["scenario_data"]):
+    st.session_state["scenario_data"] = edited_scenario_df.copy()
 st.session_state["prev_num_scenarios"] = num_scenarios
 
 # Calculate scenario emissions and savings
@@ -177,7 +179,8 @@ if selected_criteria:
     except AttributeError:
         edited_criteria_df = st.experimental_data_editor(criteria_df, use_container_width=True)
 
-    st.session_state["criteria_data"] = edited_criteria_df
+    if not edited_criteria_df.equals(st.session_state["criteria_data"]):
+        st.session_state["criteria_data"] = edited_criteria_df
 
     if st.button("Run the model"):
         scaled_criteria_df = edited_criteria_df.copy()
