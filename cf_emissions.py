@@ -12,7 +12,12 @@ def main():
     st.title("Sustainability Decision Assistant")
     st.write("*A tool to prioritize scenarios for carbon savings and resource efficiency, enabling data-driven sustainable decisions.*")
 
-    # Debugging: Display OpenAI package version
+    # Debugging: Display Streamlit and OpenAI package versions
+    try:
+        st.write(f"**Streamlit Version:** {st.__version__}")
+    except AttributeError:
+        st.write("**Streamlit Version:** Not Found")
+    
     try:
         st.write(f"**OpenAI Package Version:** {openai.__version__}")
     except AttributeError:
@@ -203,6 +208,14 @@ def main():
 
     st.write("Apart from the environmental impact (e.g., CO₂ saved) calculated above, which of the following criteria are also important to your organisation? Please select all that apply and then assign values for each scenario.")
 
+    # Define scale-based criteria globally
+    scale_criteria = {
+        "Technical Feasibility", "Supplier Reliability and Technology Readiness", "Implementation Complexity",
+        "Scalability", "Maintenance Requirements", "Regulatory Compliance", "Risk for Workforce Safety",
+        "Risk for Operations", "Impact on Product Quality", "Customer and Stakeholder Alignment",
+        "Priority for our organisation"
+    }
+
     # Criteria options with brief, color-coded descriptions for the 1-10 scale criteria
     criteria_options = {
         "Technical Feasibility": "<span style='color:red;'>1-4: low feasibility</span>, <span style='color:orange;'>5-6: moderate</span>, <span style='color:green;'>7-10: high feasibility</span>",
@@ -248,6 +261,9 @@ def main():
                 criteria_options[other_name.strip()] = "1-10 scale, higher = more beneficial"
             else:
                 criteria_options[other_name.strip()] = "1-10 scale, higher = less beneficial (inverse interpretation)"
+            # Update scale_criteria if necessary
+            if other_scale == "No":
+                scale_criteria.add(other_name.strip())
 
     # Show descriptions for selected criteria (with HTML enabled)
     for crit in selected_criteria:
@@ -269,21 +285,6 @@ def main():
 
             st.write("Please assign values for each selected criterion to each scenario. Double-click a cell to edit. For (1-10) criteria, only enter values between 1 and 10.")
 
-            # Determine which criteria are scale-based (1-10) and which are free input
-            scale_criteria = {
-                "Technical Feasibility", "Supplier Reliability and Technology Readiness", "Implementation Complexity",
-                "Scalability", "Maintenance Requirements", "Regulatory Compliance", "Risk for Workforce Safety",
-                "Risk for Operations", "Impact on Product Quality", "Customer and Stakeholder Alignment",
-                "Priority for our organisation"
-            }
-
-            # Handle the "Other" criterion if applicable
-            if "other_name_input" in st.session_state and st.session_state.get("other_scale_radio") == "No" and st.session_state.get("other_name_input", "").strip():
-                other_name_str = st.session_state["other_name_input"].strip()
-                scale_criteria.add(other_name_str)
-            elif "other_name_input" in st.session_state and st.session_state.get("other_scale_radio") == "Yes" and st.session_state.get("other_name_input", "").strip():
-                pass  # Higher is better, do not invert
-
             # Editable table for criteria values with input constraints
             try:
                 edited_criteria_df = st.data_editor(
@@ -299,7 +300,7 @@ def main():
                             "id": c, 
                             "name": c, 
                             "type": "number", 
-                            "format": {"specifier": "d"}, 
+                            "format": {"specifier": ".0f"},  # Ensures integer input
                             "min": 1, 
                             "max": 10
                         } if c in scale_criteria else {"id": c, "name": c, "type": "number"}
@@ -320,7 +321,7 @@ def main():
                             "id": c, 
                             "name": c, 
                             "type": "number", 
-                            "format": {"specifier": "d"}, 
+                            "format": {"specifier": ".0f"},  # Ensures integer input
                             "min": 1, 
                             "max": 10
                         } if c in scale_criteria else {"id": c, "name": c, "type": "number"}
