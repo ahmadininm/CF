@@ -339,7 +339,7 @@ You are an expert sustainability analyst. Based on the following scenario descri
                             # If JSON parsing fails, assign neutral scores
                             for crit in selected_criteria:
                                 criteria_df.loc[criteria_df["Scenario"] == scenario, crit] = 5
-                    except openai.error.OpenAIAPIError as e:
+                    except openai.error.OpenAIError as e:
                         st.error(f"Error with OpenAI API: {e}")
                         for crit in selected_criteria:
                             criteria_df.loc[criteria_df["Scenario"] == scenario, crit] = 5
