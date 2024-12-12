@@ -237,3 +237,78 @@ if selected_criteria:
     # After editing, `edited_criteria_df` contains the final user inputs
     # Further calculations or displays can be done here as needed.
 
+
+
+
+import numpy as np
+
+# Assuming you have the following variables available from previous steps:
+# edited_criteria_df: the final dataframe with user inputs (no zeros)
+# selected_criteria: list of selected criteria
+# scale_criteria: set of criteria that are already 1-10 scale
+# other_name, other_scale: if the "Other" criterion was used
+# Remember: 
+# - scale_criteria are already on a beneficial scale where higher is better (1-10).
+# - ROI and Initial investment need inversion (lower is better).
+# - "Other" depends on user choice (if other_scale == "No", lower is better; if "Yes", higher is better).
+
+# Create a copy for scaled results
+scaled_criteria_df = edited_criteria_df.copy()
+
+# Define which criteria need inversion (lower is better)
+inversion_criteria = []
+if "Return on Investment (ROI)(years)" in selected_criteria:
+    inversion_criteria.append("Return on Investment (ROI)(years)")
+if "Initial investment (£)" in selected_criteria:
+    inversion_criteria.append("Initial investment (£)")
+
+# Handle the Other criterion if applicable
+if other_name.strip():
+    if other_scale == "No":
+        # Add other_name to inversion criteria
+        inversion_criteria.append(other_name.strip())
+    else:
+        # other_scale == "Yes" means higher is better, so it's like a normal scale criterion
+        # If it's not part of scale_criteria, we can treat it as scale-based
+        scale_criteria.add(other_name.strip())
+
+# Now, for each criterion column in the dataframe:
+for crit in selected_criteria:
+    values = scaled_criteria_df[crit].values.astype(float)
+    min_val = np.min(values)
+    max_val = np.max(values)
+
+    if crit in scale_criteria:
+        # Already on a 1-10 scale, higher is better. Just ensure they are within range.
+        # If needed, you can clip values: values = np.clip(values, 1, 10)
+        # Usually not needed if user already adhered to input guidelines.
+        pass
+
+    elif crit in inversion_criteria:
+        # Invert scale: lower value -> 10, higher value -> 1
+        if max_val == min_val:
+            # Avoid division by zero if all values are the same
+            # If all the same, they can all be set to 10, as they are "lowest"
+            scaled_values = np.ones_like(values) * 10
+        else:
+            scaled_values = 10 - 9 * (values - min_val) / (max_val - min_val)
+        scaled_criteria_df[crit] = scaled_values
+
+    else:
+        # For non-scale columns that are not inversion criteria and not already scale_criteria,
+        # we assume higher is better and scale from min=1 to max=10:
+        if max_val == min_val:
+            # All values same; just set them all to 10 if you consider them "max beneficial" or 1, 
+            # depending on interpretation. Assuming higher = better:
+            scaled_values = np.ones_like(values) * 10
+        else:
+            scaled_values = 1 + 9 * (values - min_val) / (max_val - min_val)
+        scaled_criteria_df[crit] = scaled_values
+
+# Now scaled_criteria_df should have all criteria normalized to a 1-10 scale
+# according to the specified rules.
+
+st.write("### Normalised Results (All Criteria Scaled 1-10)")
+st.dataframe(scaled_criteria_df)
+
+
