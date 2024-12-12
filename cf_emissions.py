@@ -96,7 +96,6 @@ scenario_df = pd.DataFrame(scenario_data, columns=scenario_columns)
 st.write("Please adjust the percentages for each scenario. Double-click a cell to edit the value.")
 st.write("The percentage represents usage relative to BAU. For example, 90% means the item is at 90% of its BAU usage, thereby achieving a 10% reduction.")
 
-# If st.data_editor is not available, use st.experimental_data_editor
 try:
     edited_scenario_df = st.data_editor(scenario_df, use_container_width=True)
 except AttributeError:
@@ -143,6 +142,10 @@ st.download_button(
     mime="text/csv"
 )
 
+# Initialize other_name and other_scale to avoid NameError if "Other" not selected
+other_name = ""
+other_scale = ""
+
 # Ask about additional criteria
 st.write("Apart from the environmental impact (e.g., CO₂ saved) calculated above, which of the following criteria are also important to your organisation? Please select all that apply and then assign values for each scenario.")
 
@@ -188,15 +191,36 @@ if "Other" in selected_criteria:
 for crit in selected_criteria:
     st.markdown(f"**{crit}:** {criteria_options[crit]}", unsafe_allow_html=True)
 
-# If criteria selected, display an editable table for scenarios vs criteria
+# Handle saving and restoring criteria data to avoid reset when adding new criteria
+if "criteria_data" not in st.session_state:
+    st.session_state["criteria_data"] = pd.DataFrame()
+
+previous_criteria = st.session_state.get("previous_criteria", [])
+
 if selected_criteria:
     scenario_names = results_df["Scenario"].tolist()
-    criteria_df = pd.DataFrame(columns=["Scenario"] + selected_criteria)
-    criteria_df["Scenario"] = scenario_names
 
-    # Initialize all values to 0
+    # Start with either existing session data or new data
+    if not st.session_state["criteria_data"].empty:
+        criteria_df = st.session_state["criteria_data"].copy()
+    else:
+        criteria_df = pd.DataFrame(columns=["Scenario"] + selected_criteria)
+        criteria_df["Scenario"] = scenario_names
+        for c in selected_criteria:
+            if c not in criteria_df.columns:
+                criteria_df[c] = 0
+
+    # If new criteria are added that weren't there before, add them as columns with 0
     for c in selected_criteria:
-        criteria_df[c] = 0
+        if c not in criteria_df.columns:
+            criteria_df[c] = 0
+
+    # If criteria were removed, drop those columns
+    for c in criteria_df.columns:
+        if c != "Scenario" and c not in selected_criteria:
+            criteria_df.drop(columns=c, inplace=True)
+
+    criteria_df.index = range(1, len(criteria_df) + 1)  # Start indexing from 1
 
     st.write("Please assign values for each selected criterion to each scenario. Double-click a cell to edit. For (1-10) criteria, only enter values between 1 and 10.")
 
@@ -226,31 +250,16 @@ if selected_criteria:
             # Other criterion might not have a scale, assume free numeric input
             column_config[crit] = st.column_config.NumberColumn(label=crit)
 
-    criteria_df.index = range(1, len(criteria_df) + 1)  # Start indexing from 1
-
     try:
-        edited_criteria_df = st.data_editor(criteria_df, use_container_width=True, column_config=column_config)
+        edited_criteria_df = st.data_editor(criteria_df, use_container_width=True, column_config=column_config, key="criteria_editor")
     except AttributeError:
-        # If st.data_editor not available, fallback without column_config
         edited_criteria_df = st.experimental_data_editor(criteria_df, use_container_width=True)
 
-    # After editing, `edited_criteria_df` contains the final user inputs
-    # Further calculations or displays can be done here as needed.
-
-
-
-
-
-
-# Assuming you have the following variables available from previous steps:
-# edited_criteria_df: the final dataframe with user inputs (no zeros)
-# selected_criteria: list of selected criteria
-# scale_criteria: set of criteria that are already 1-10 scale
-# other_name, other_scale: if the "Other" criterion was used
-# Remember: 
-# - scale_criteria are already on a beneficial scale where higher is better (1-10).
-# - ROI and Initial investment need inversion (lower is better).
-# - "Other" depends on user choice (if other_scale == "No", lower is better; if "Yes", higher is better).
+    # Store the edited data and current criteria selection in session state
+    st.session_state["criteria_data"] = edited_criteria_df.copy()
+    st.session_state["previous_criteria"] = selected_criteria
+else:
+    st.session_state["criteria_data"] = pd.DataFrame()
 
 import numpy as np
 
