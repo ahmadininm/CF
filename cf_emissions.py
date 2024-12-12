@@ -4,6 +4,9 @@ import numpy as np
 import openai
 import json
 
+st.write(f"**OpenAI Package Version:** {openai.__version__}")
+
+
 def main():
     # Set page configuration
     st.set_page_config(page_title="Sustainability Decision Assistant", layout="wide")
