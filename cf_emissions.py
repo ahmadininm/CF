@@ -20,12 +20,16 @@ def main():
     # Retrieve OpenAI API key from Streamlit Secrets
     try:
         openai.api_key = st.secrets["OPENAI_API_KEY"]
+                # Add debug statement to verify the key
+        st.write("API Key:", st.secrets["OPENAI_API_KEY"])
+
+    
     except KeyError:
         st.error("OpenAI API key not found. Please set it in the Streamlit Secrets.")
         st.stop()
 
 
-   st.write("API Key:", st.secrets["OPENAI_API_KEY"])
+   
     # ----------------------- BAU Inputs -----------------------
 
     st.subheader("Enter Daily Usage for Business As Usual (BAU)")
