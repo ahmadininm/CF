@@ -2,6 +2,33 @@ import pandas as pd
 import streamlit as st
 import numpy as np
 
+def keyword_based_assignment(description):
+    # Define keyword mappings for criteria
+    keyword_mappings = {
+        "Technical Feasibility": {"easy", "simple", "straightforward", "feasible"},
+        "Supplier Reliability and Technology Readiness": {"reliable", "proven", "mature", "stable"},
+        "Implementation Complexity": {"complex", "difficult", "challenging", "simple"},
+        "Scalability": {"scalable", "expandable", "grow", "increase"},
+        "Maintenance Requirements": {"low maintenance", "easy", "simple", "minimal"},
+        "Regulatory Compliance": {"compliant", "regulatory", "approved", "certified"},
+        "Risk for Workforce Safety": {"safe", "no risk", "low risk", "secure"},
+        "Risk for Operations": {"low risk", "minimal risk", "secure", "stable"},
+        "Impact on Product Quality": {"high quality", "consistent", "improves", "maintains"},
+        "Customer and Stakeholder Alignment": {"aligned", "support", "demand", "expect"},
+        "Priority for our organisation": {"important", "priority", "focus", "critical"}
+    }
+
+    # Initialize criteria values
+    criteria_values = {key: 5 for key in keyword_mappings.keys()}  # Default to 5 (neutral)
+
+    # Assign values based on keywords in description
+    for criterion, keywords in keyword_mappings.items():
+        for keyword in keywords:
+            if keyword in description.lower():
+                criteria_values[criterion] = 10  # Max value if keyword found
+
+    return criteria_values
+
 def main():
     # Default materials and energy (units changed to use m³/day)
     default_items = [
@@ -228,6 +255,14 @@ def main():
         if other_name.strip():
             scale_criteria.add(other_name.strip())
 
+        # Automatically assign values based on scenario descriptions
+        for i, row in edited_scenario_desc_df.iterrows():
+            description = row["Description"]
+            assigned_values = keyword_based_assignment(description)
+            for crit in assigned_values:
+                if crit in criteria_df.columns:
+                    criteria_df.loc[criteria_df["Scenario"] == row["Scenario"], crit] = assigned_values[crit]
+
         # Create column configs for st.data_editor if available (Streamlit 1.22+)
         column_config = {}
         column_config["Scenario"] = st.column_config.TextColumn("Scenario", disabled=True)
@@ -268,43 +303,4 @@ def main():
 
                 # Handle the 'Other' criterion if applicable
                 if other_name.strip():
-                    if other_scale == "No":
-                        # Add other_name to inversion criteria
-                        inversion_criteria.append(other_name.strip())
-                    else:
-                        # other_scale == "Yes" means higher is better, so treat it as a scale criterion
-                        scale_criteria.add(other_name.strip())
-
-                # Now scale each criterion
-                for crit in selected_criteria:
-                    values = scaled_criteria_df[crit].values.astype(float)
-                    min_val = np.min(values)
-                    max_val = np.max(values)
-
-                    if crit in scale_criteria:
-                        # Already 1-10 scale where higher is better. Just ensure values are valid.
-                        pass
-
-                    elif crit in inversion_criteria:
-                        # Invert scale: lower value -> 10, higher value -> 1
-                        if max_val == min_val:
-                            scaled_values = np.ones_like(values) * 10 if min_val != 0 else np.zeros_like(values)
-                        else:
-                            scaled_values = 10 - 9 * (values - min_val) / (max_val - min_val)
-                        scaled_criteria_df[crit] = scaled_values
-
-                    else:
-                        # For non-scale criteria that are not inverted, scale so min=1, max=10 (higher is better)
-                        if max_val == min_val:
-                            scaled_values = np.ones_like(values) * 10 if min_val != 0 else np.zeros_like(values)
-                        else:
-                            scaled_values = 1 + 9 * (values - min_val) / (max_val - min_val)
-                        scaled_criteria_df[crit] = scaled_values
-
-                st.write("### Normalised Results (All Criteria Scaled 1-10)")
-                st.dataframe(scaled_criteria_df)
-        else:
-            st.write("No criteria selected or no data available to scale.")
-
-if __name__ == "__main__":
-    main()
+                    if other_scale ==
