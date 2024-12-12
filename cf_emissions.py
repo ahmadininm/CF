@@ -306,5 +306,4 @@ def main():
                     if other_scale == "No":
                         # Add other_name to inversion criteria
                         inversion_criteria.append(other_name.strip())
-                    else:
-                        # other_scale == "Yes"
+                    else
