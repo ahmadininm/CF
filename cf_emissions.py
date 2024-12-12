@@ -2,33 +2,6 @@ import pandas as pd
 import streamlit as st
 import numpy as np
 
-def keyword_based_assignment(description):
-    # Define keyword mappings for criteria
-    keyword_mappings = {
-        "Technical Feasibility": {"easy", "simple", "straightforward", "feasible"},
-        "Supplier Reliability and Technology Readiness": {"reliable", "proven", "mature", "stable"},
-        "Implementation Complexity": {"complex", "difficult", "challenging", "simple"},
-        "Scalability": {"scalable", "expandable", "grow", "increase"},
-        "Maintenance Requirements": {"low maintenance", "easy", "simple", "minimal"},
-        "Regulatory Compliance": {"compliant", "regulatory", "approved", "certified"},
-        "Risk for Workforce Safety": {"safe", "no risk", "low risk", "secure"},
-        "Risk for Operations": {"low risk", "minimal risk", "secure", "stable"},
-        "Impact on Product Quality": {"high quality", "consistent", "improves", "maintains"},
-        "Customer and Stakeholder Alignment": {"aligned", "support", "demand", "expect"},
-        "Priority for our organisation": {"important", "priority", "focus", "critical"}
-    }
-
-    # Initialize criteria values
-    criteria_values = {key: 5 for key in keyword_mappings.keys()}  # Default to 5 (neutral)
-
-    # Assign values based on keywords in description
-    for criterion, keywords in keyword_mappings.items():
-        for keyword in keywords:
-            if keyword in description.lower():
-                criteria_values[criterion] = 10  # Max value if keyword found
-
-    return criteria_values
-
 def main():
     # Default materials and energy (units changed to use m³/day)
     default_items = [
@@ -213,10 +186,6 @@ def main():
         list(criteria_options.keys())
     )
 
-    # Initialize other_name and other_scale to avoid UnboundLocalError
-    other_name = ""
-    other_scale = "Yes"
-
     # If user selected "Other", ask for custom criterion name and a yes/no question
     if "Other" in selected_criteria:
         other_name = st.text_input("Enter the name for the 'Other' criterion:")
@@ -259,14 +228,6 @@ def main():
         if other_name.strip():
             scale_criteria.add(other_name.strip())
 
-        # Automatically assign values based on scenario descriptions
-        for i, row in edited_scenario_desc_df.iterrows():
-            description = row["Description"]
-            assigned_values = keyword_based_assignment(description)
-            for crit in assigned_values:
-                if crit in criteria_df.columns:
-                    criteria_df.loc[criteria_df["Scenario"] == row["Scenario"], crit] = assigned_values[crit]
-
         # Create column configs for st.data_editor if available (Streamlit 1.22+)
         column_config = {}
         column_config["Scenario"] = st.column_config.TextColumn("Scenario", disabled=True)
@@ -292,27 +253,27 @@ def main():
         # After editing, `edited_criteria_df` contains the final user inputs
         # Further calculations or displays can be done here as needed.
 
-# Only proceed if criteria were selected and edited_criteria_df is defined
-if selected_criteria and 'edited_criteria_df' in locals() and edited_criteria_df is not None and not edited_criteria_df.empty:
-    if st.button("Run Model"):
-        # Create a copy for scaled results
-        scaled_criteria_df = edited_criteria_df.copy()
+        # Only proceed if criteria were selected and edited_criteria_df is defined
+        if selected_criteria and 'edited_criteria_df' in locals() and edited_criteria_df is not None and not edited_criteria_df.empty:
+            if st.button("Run Model"):
+                # Create a copy for scaled results
+                scaled_criteria_df = edited_criteria_df.copy()
 
-        # Define which criteria need inversion (lower is better)
-        inversion_criteria = []
-        if "Return on Investment (ROI)(years)" in selected_criteria:
-            inversion_criteria.append("Return on Investment (ROI)(years)")
-        if "Initial investment (£)" in selected_criteria:
-            inversion_criteria.append("Initial investment (£)")
+                # Define which criteria need inversion (lower is better)
+                inversion_criteria = []
+                if "Return on Investment (ROI)(years)" in selected_criteria:
+                    inversion_criteria.append("Return on Investment (ROI)(years)")
+                if "Initial investment (£)" in selected_criteria:
+                    inversion_criteria.append("Initial investment (£)")
 
-       # Handle the 'Other' criterion if applicable
-if 'other_name' in locals() and other_name.strip():
-    if 'other_scale' in locals() and other_scale == "No":
-        # Add other_name to inversion criteria
-        inversion_criteria.append(other_name.strip())
-    else:
-        # other_scale == "Yes" means higher is better, so treat it as a scale criterion
-        scale_criteria.add(other_name.strip())
+                # Handle the 'Other' criterion if applicable
+                if other_name.strip():
+                    if other_scale == "No":
+                        # Add other_name to inversion criteria
+                        inversion_criteria.append(other_name.strip())
+                    else:
+                        # other_scale == "Yes" means higher is better, so treat it as a scale criterion
+                        scale_criteria.add(other_name.strip())
 
                 # Now scale each criterion
                 for crit in selected_criteria:
