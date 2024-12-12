@@ -1,3 +1,160 @@
+import pandas as pd
+import streamlit as st
+import numpy as np
+
+# Default materials and energy (units changed to use m³/day)
+default_items = [
+    "Gas (kWh/day)", 
+    "Electricity (kWh/day)", 
+    "Nitrogen (m³/day)", 
+    "Hydrogen (m³/day)", 
+    "Argon (m³/day)", 
+    "Helium (m³/day)"
+]
+
+# Emission Factors (hidden from the user) - keys updated to match item names
+emission_factors = {
+    "Gas (kWh/day)": 0.182928926,         # kg CO₂e/kWh
+    "Electricity (kWh/day)": 0.207074289, # kg CO₂e/kWh
+    "Nitrogen (m³/day)": 0.090638487,     # kg CO₂e/m³
+    "Hydrogen (m³/day)": 1.07856,         # kg CO₂e/m³
+    "Argon (m³/day)": 6.342950515,        # kg CO₂e/m³
+    "Helium (m³/day)": 0.660501982        # kg CO₂e/m³
+}
+
+# Main Title and Description
+st.title("Sustainability Decision Assistant")
+st.write("*A tool to prioritise scenarios for carbon savings and resource efficiency, enabling data-driven sustainable decisions.*")
+
+# Input BAU values
+st.subheader("Enter Daily Usage for Business As Usual (BAU)")
+bau_data = pd.DataFrame({
+    "Item": default_items,
+    "Daily Usage (Units)": [0.0] * len(default_items)
+})
+
+for i in range(len(bau_data)):
+    bau_data.loc[i, "Daily Usage (Units)"] = st.number_input(
+        f"{bau_data['Item'][i]}:",
+        min_value=0.0,
+        step=0.1,
+        value=0.0
+    )
+
+# Option to add custom items
+st.subheader("Add Custom Items (Optional)")
+st.write("If there are any additional sources of emissions not accounted for above, you can add them here.")
+if st.checkbox("Add custom items?"):
+    num_custom_items = st.number_input("How many custom items would you like to add?", min_value=1, step=1, value=1)
+    for i in range(num_custom_items):
+        item_name = st.text_input(f"Custom Item {i + 1} Name:", key=f"custom_item_name_{i}")
+        emission_factor = st.number_input(
+            f"Custom Item {i + 1} Emission Factor (kg CO₂e/unit):", 
+            min_value=0.0000001, 
+            step=0.0000001, 
+            value=0.0000001,
+            key=f"custom_emission_factor_{i}"
+        )
+        usage = st.number_input(
+            f"Custom Item {i + 1} Daily Usage (Units):", 
+            min_value=0.0, 
+            step=0.1, 
+            value=0.0,
+            key=f"custom_usage_{i}"
+        )
+        # Add to BAU Data
+        new_row = pd.DataFrame({"Item": [item_name], "Daily Usage (Units)": [usage]})
+        bau_data = pd.concat([bau_data, new_row], ignore_index=True)
+        emission_factors[item_name] = emission_factor
+
+# Fill missing emission factors in the DataFrame
+bau_data["Emission Factor (kg CO₂e/unit)"] = bau_data["Item"].map(emission_factors).fillna(0)
+
+# Calculate emissions for BAU
+bau_data["Daily Emissions (kg CO₂e)"] = bau_data["Daily Usage (Units)"] * bau_data["Emission Factor (kg CO₂e/unit)"]
+bau_data["Annual Emissions (kg CO₂e)"] = bau_data["Daily Emissions (kg CO₂e)"] * 365
+
+# Display BAU summary
+st.write("### BAU Results")
+total_daily_bau = bau_data['Daily Emissions (kg CO₂e)'].sum()
+total_annual_bau = bau_data['Annual Emissions (kg CO₂e)'].sum()
+
+st.write(f"**Total Daily Emissions (BAU):** {total_daily_bau:.2f} kg CO₂e/day")
+st.write(f"**Total Annual Emissions (BAU):** {total_annual_bau:.2f} kg CO₂e/year")
+
+# Visualize BAU emissions
+st.bar_chart(bau_data.set_index("Item")["Daily Emissions (kg CO₂e)"], use_container_width=True)
+
+# Scenario Planning
+st.subheader("Scenario Planning (Editable Table)")
+num_scenarios = st.number_input("How many scenarios do you want to add?", min_value=1, step=1, value=1)
+
+# Use session_state to remember scenario_df
+if "scenario_data" not in st.session_state:
+    st.session_state["scenario_data"] = pd.DataFrame()
+
+# If number of scenarios changed, recreate scenario_df
+if st.session_state.get("prev_num_scenarios", 1) != num_scenarios or st.session_state["scenario_data"].empty:
+    scenario_columns = ["Item"] + [f"Scenario {i+1} (%)" for i in range(num_scenarios)]
+    scenario_data = [[item] + [100.0]*num_scenarios for item in bau_data["Item"]]
+    scenario_df = pd.DataFrame(scenario_data, columns=scenario_columns)
+    st.session_state["scenario_data"] = scenario_df
+else:
+    scenario_df = st.session_state["scenario_data"]
+
+st.write("Please adjust the percentages for each scenario. Double-click a cell to edit the value.")
+st.write("The percentage represents usage relative to BAU. For example, 90% means the item is at 90% of its BAU usage, thereby achieving a 10% reduction.")
+
+try:
+    edited_scenario_df = st.data_editor(scenario_df, use_container_width=True, key="scenario_editor")
+except AttributeError:
+    edited_scenario_df = st.experimental_data_editor(scenario_df, use_container_width=True)
+
+# Update the scenario_data in session_state
+st.session_state["scenario_data"] = edited_scenario_df.copy()
+st.session_state["prev_num_scenarios"] = num_scenarios
+
+# Convert columns (except Item) to numeric
+for col in edited_scenario_df.columns[1:]:
+    edited_scenario_df[col] = pd.to_numeric(edited_scenario_df[col], errors='coerce').fillna(100.0)
+
+# Calculate scenario emissions and savings
+results = []
+for col in edited_scenario_df.columns[1:]:
+    usage_percentages = edited_scenario_df[col].values / 100.0
+    scenario_daily_emissions = (bau_data["Daily Usage (Units)"].values 
+                                * usage_percentages 
+                                * bau_data["Emission Factor (kg CO₂e/unit)"].values).sum()
+    scenario_annual_emissions = scenario_daily_emissions * 365
+    co2_saving_kg = total_annual_bau - scenario_annual_emissions
+    co2_saving_percent = (co2_saving_kg / total_annual_bau * 100) if total_annual_bau != 0 else 0
+
+    results.append({
+        "Scenario": col.replace(" (%)",""),  # Remove " (%)" from the scenario name
+        "Total Daily Emissions (kg CO₂e)": scenario_daily_emissions,
+        "Total Annual Emissions (kg CO₂e)": scenario_annual_emissions,
+        "CO₂ Saving (kg CO₂e/year)": co2_saving_kg,
+        "CO₂ Saving (%)": co2_saving_percent
+    })
+
+results_df = pd.DataFrame(results)
+# Reindex the results to start from 1
+results_df.index = range(1, len(results_df) + 1)
+
+st.write("### Scenario Results")
+st.dataframe(results_df)
+
+st.subheader("CO₂ Savings Compared to BAU (%)")
+st.bar_chart(results_df.set_index("Scenario")["CO₂ Saving (%)"], use_container_width=True)
+
+# Option to download scenario results as CSV
+st.download_button(
+    label="Download Scenario Results as CSV",
+    data=results_df.to_csv(index=False),
+    file_name="scenario_results.csv",
+    mime="text/csv"
+)
+
 # Initialize other_name and other_scale to avoid NameError if "Other" not selected
 other_name = ""
 other_scale = ""
@@ -47,44 +204,31 @@ if "Other" in selected_criteria:
 for crit in selected_criteria:
     st.markdown(f"**{crit}:** {criteria_options[crit]}", unsafe_allow_html=True)
 
-# Use session_state to store and persist criteria data
+# Store criteria data in session_state to avoid resets
 if "criteria_data" not in st.session_state:
     st.session_state["criteria_data"] = pd.DataFrame()
-if "prev_selected_criteria" not in st.session_state:
-    st.session_state["prev_selected_criteria"] = []
 
+# Only create or update criteria_df if criteria are selected
 if selected_criteria:
     scenario_names = results_df["Scenario"].tolist()
 
-    # If selected_criteria changed, adjust the structure of criteria_data
-    if set(selected_criteria) != set(st.session_state["prev_selected_criteria"]):
-        # Start from existing data
-        criteria_df = st.session_state["criteria_data"].copy()
-        if criteria_df.empty:
-            # Create new DataFrame if empty
-            criteria_df = pd.DataFrame({"Scenario": scenario_names})
-        else:
-            # If scenario count changed or data empty, ensure Scenario column matches scenario_names
-            if list(criteria_df["Scenario"]) != scenario_names:
-                # Recreate scenario column if needed
-                criteria_df = pd.DataFrame({"Scenario": scenario_names})
-        
-        # Add missing criteria columns with 0 default
+    # Start with existing session data if available, else create new
+    if st.session_state["criteria_data"].empty:
+        criteria_df = pd.DataFrame(columns=["Scenario"] + selected_criteria)
+        criteria_df["Scenario"] = scenario_names
         for c in selected_criteria:
             if c not in criteria_df.columns:
                 criteria_df[c] = 0
-        
-        # Remove columns no longer selected
+    else:
+        criteria_df = st.session_state["criteria_data"].copy()
+        # Add new criteria if selected after the fact
+        for c in selected_criteria:
+            if c not in criteria_df.columns and c != "Scenario":
+                criteria_df[c] = 0
+        # Remove criteria that were unselected
         for c in criteria_df.columns:
             if c != "Scenario" and c not in selected_criteria:
                 criteria_df.drop(columns=c, inplace=True)
-        
-        # Update session state
-        st.session_state["criteria_data"] = criteria_df.copy()
-        st.session_state["prev_selected_criteria"] = selected_criteria.copy()
-    else:
-        # No change in criteria selection, just use existing data
-        criteria_df = st.session_state["criteria_data"].copy()
 
     criteria_df.index = range(1, len(criteria_df) + 1)  # Start indexing from 1
 
@@ -107,7 +251,7 @@ if selected_criteria:
     column_config["Scenario"] = st.column_config.TextColumn("Scenario", disabled=True)
     for crit in selected_criteria:
         if crit in scale_criteria:
-            # Numeric column with 1-10 limits (no step, to reduce editing issues)
+            # Numeric column with 1-10 limits (no step to avoid input difficulties)
             column_config[crit] = st.column_config.NumberColumn(label=crit, min_value=1, max_value=10)
         elif crit in ["Initial investment (£)", "Return on Investment (ROI)(years)"]:
             # Numeric column with no strict limit
@@ -121,15 +265,12 @@ if selected_criteria:
     except AttributeError:
         edited_criteria_df = st.experimental_data_editor(criteria_df, use_container_width=True)
 
-    # Store updated criteria data immediately to ensure user input persistence
+    # Store updated criteria data
     st.session_state["criteria_data"] = edited_criteria_df.copy()
-
 else:
-    # If no criteria selected, reset criteria_data
     st.session_state["criteria_data"] = pd.DataFrame()
-    st.session_state["prev_selected_criteria"] = []
 
-# Now proceed with scaling only if we have criteria and data
+# Scaling logic
 if selected_criteria and 'edited_criteria_df' in locals() and edited_criteria_df is not None and not edited_criteria_df.empty:
     scaled_criteria_df = edited_criteria_df.copy()
 
@@ -139,7 +280,7 @@ if selected_criteria and 'edited_criteria_df' in locals() and edited_criteria_df
     if "Initial investment (£)" in selected_criteria:
         inversion_criteria.append("Initial investment (£)")
 
-    if other_name.strip():
+    if 'other_name' in locals() and other_name.strip():
         if other_scale == "No":
             inversion_criteria.append(other_name.strip())
         else:
