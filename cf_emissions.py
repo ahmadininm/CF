@@ -33,17 +33,25 @@ bau_data = pd.DataFrame({
     "Daily Usage (Units)": [0.0] * len(default_items)
 })
 
+if "bau_data" not in st.session_state:
+    st.session_state["bau_data"] = bau_data.copy()
+
 for i in range(len(bau_data)):
-    bau_data.loc[i, "Daily Usage (Units)"] = st.number_input(
+    st.session_state["bau_data"].loc[i, "Daily Usage (Units)"] = st.number_input(
         f"{bau_data['Item'][i]}:",
         min_value=0.0,
         step=0.1,
-        value=0.0
+        value=st.session_state["bau_data"].loc[i, "Daily Usage (Units)"]
     )
+
+bau_data = st.session_state["bau_data"]
 
 # Option to add custom items
 st.subheader("Add Custom Items (Optional)")
 st.write("If there are any additional sources of emissions not accounted for above, you can add them here.")
+if "custom_items" not in st.session_state:
+    st.session_state["custom_items"] = pd.DataFrame(columns=["Item", "Daily Usage (Units)"])
+
 if st.checkbox("Add custom items?"):
     num_custom_items = st.number_input("How many custom items would you like to add?", min_value=1, step=1, value=1)
     for i in range(num_custom_items):
@@ -62,12 +70,13 @@ if st.checkbox("Add custom items?"):
             value=0.0,
             key=f"custom_usage_{i}"
         )
-        # Add to BAU Data
         new_row = pd.DataFrame({"Item": [item_name], "Daily Usage (Units)": [usage]})
-        bau_data = pd.concat([bau_data, new_row], ignore_index=True)
-        emission_factors[item_name] = emission_factor
+        if item_name.strip() and item_name not in st.session_state["custom_items"]["Item"].values:
+            st.session_state["custom_items"] = pd.concat([st.session_state["custom_items"], new_row], ignore_index=True)
+            emission_factors[item_name] = emission_factor
 
-# Fill missing emission factors in the DataFrame
+# Update BAU data with custom items
+bau_data = pd.concat([bau_data, st.session_state["custom_items"]], ignore_index=True)
 bau_data["Emission Factor (kg CO₂e/unit)"] = bau_data["Item"].map(emission_factors).fillna(0)
 
 # Calculate emissions for BAU
@@ -89,18 +98,12 @@ st.bar_chart(bau_data.set_index("Item")["Daily Emissions (kg CO₂e)"], use_cont
 st.subheader("Scenario Planning (Editable Table)")
 num_scenarios = st.number_input("How many scenarios do you want to add?", min_value=1, step=1, value=1)
 
-# Use session_state to remember scenario_df
-if "scenario_data" not in st.session_state:
-    st.session_state["scenario_data"] = pd.DataFrame()
-
-# If number of scenarios changed, recreate scenario_df
-if st.session_state.get("prev_num_scenarios", 1) != num_scenarios or st.session_state["scenario_data"].empty:
+if "scenario_data" not in st.session_state or len(st.session_state["scenario_data"].columns) != num_scenarios + 1:
     scenario_columns = ["Item"] + [f"Scenario {i+1} (%)" for i in range(num_scenarios)]
     scenario_data = [[item] + [100.0]*num_scenarios for item in bau_data["Item"]]
-    scenario_df = pd.DataFrame(scenario_data, columns=scenario_columns)
-    st.session_state["scenario_data"] = scenario_df
-else:
-    scenario_df = st.session_state["scenario_data"]
+    st.session_state["scenario_data"] = pd.DataFrame(scenario_data, columns=scenario_columns)
+
+scenario_df = st.session_state["scenario_data"]
 
 st.write("Please adjust the percentages for each scenario. Double-click a cell to edit the value.")
 st.write("The percentage represents usage relative to BAU. For example, 90% means the item is at 90% of its BAU usage, thereby achieving a 10% reduction.")
@@ -110,9 +113,7 @@ try:
 except AttributeError:
     edited_scenario_df = st.experimental_data_editor(scenario_df, use_container_width=True)
 
-# Update the scenario_data in session_state
-st.session_state["scenario_data"] = edited_scenario_df.copy()
-st.session_state["prev_num_scenarios"] = num_scenarios
+st.session_state["scenario_data"] = edited_scenario_df
 
 # Convert columns (except Item) to numeric
 for col in edited_scenario_df.columns[1:]:
@@ -146,191 +147,12 @@ st.dataframe(results_df)
 st.subheader("CO₂ Savings Compared to BAU (%)")
 st.bar_chart(results_df.set_index("Scenario")["CO₂ Saving (%)"], use_container_width=True)
 
-st.download_button(
-    label="Download Scenario Results as CSV",
-    data=results_df.to_csv(index=False),
-    file_name="scenario_results.csv",
-    mime="text/csv"
-)
-
-# Initialize other_name and other_scale
-other_name = ""
-other_scale = ""
-
-# Ask about additional criteria
-st.write("Apart from the environmental impact (e.g., CO₂ saved) calculated above, which of the following criteria are also important to your organisation? Please select all that apply and then assign values for each scenario.")
-
-criteria_options = {
-    "Technical Feasibility": "<span style='color:red;'>1-4: low feasibility</span>, <span style='color:orange;'>5-6: moderate</span>, <span style='color:green;'>7-10: high feasibility</span>",
-    "Supplier Reliability and Technology Readiness": "<span style='color:red;'>1-4: unreliable/immature</span>, <span style='color:orange;'>5-6: mostly reliable</span>, <span style='color:green;'>7-10: fully reliable & proven</span>",
-    "Implementation Complexity": "<span style='color:red;'>1-4: very complex</span>, <span style='color:orange;'>5-6: moderate complexity</span>, <span style='color:green;'>7-10: easy to implement</span>",
-    "Scalability": "<span style='color:red;'>1-4: hard to scale</span>, <span style='color:orange;'>5-6: moderate</span>, <span style='color:green;'>7-10: easy to scale</span>",
-    "Maintenance Requirements": "<span style='color:red;'>1-4: high maintenance</span>, <span style='color:orange;'>5-6: moderate</span>, <span style='color:green;'>7-10: low maintenance</span>",
-    "Regulatory Compliance": "<span style='color:red;'>1-4: risk of non-compliance</span>, <span style='color:orange;'>5-6: mostly compliant</span>, <span style='color:green;'>7-10: fully compliant or beyond</span>",
-    "Risk for Workforce Safety": "<span style='color:red;'>1-4: significant safety risks</span>, <span style='color:orange;'>5-6: moderate risks</span>, <span style='color:green;'>7-10: very low risk</span>",
-    "Risk for Operations": "<span style='color:red;'>1-4: high operational risk</span>, <span style='color:orange;'>5-6: moderate risk</span>, <span style='color:green;'>7-10: minimal risk</span>",
-    "Impact on Product Quality": "<span style='color:red;'>1-4: reduces quality</span>, <span style='color:orange;'>5-6: acceptable</span>, <span style='color:green;'>7-10: improves or maintains quality</span>",
-    "Customer and Stakeholder Alignment": "<span style='color:red;'>1-4: low alignment</span>, <span style='color:orange;'>5-6: moderate</span>, <span style='color:green;'>7-10: high alignment</span>",
-    "Priority for our organisation": "<span style='color:red;'>1-4: low priority</span>, <span style='color:orange;'>5-6: moderate</span>, <span style='color:green;'>7-10: top priority</span>",
-    "Initial investment (£)": "Enter the upfront cost needed (no scale limit).",
-    "Return on Investment (ROI)(years)": "Enter the time (in years) to recover the initial cost (no scale limit).",
-    "Other": "If your desired criterion is not listed, select this and specify it."
-}
-
-selected_criteria = st.multiselect(
-    "Select the criteria you want to consider:",
-    list(criteria_options.keys())
-)
-
-if "Other" in selected_criteria:
-    other_name = st.text_input("Enter the name for the 'Other' criterion:")
-    other_scale = st.radio("Does a higher number represent a more beneficial (e.g., more sustainable) outcome for this 'Other' criterion?", ["Yes", "No"])
-    if other_name.strip():
-        selected_criteria.remove("Other")
-        selected_criteria.append(other_name.strip())
-        if other_scale == "Yes":
-            criteria_options[other_name.strip()] = "1-10 scale, higher = more beneficial"
-        else:
-            criteria_options[other_name.strip()] = "1-10 scale, higher = less beneficial (inverse interpretation)"
-
-for crit in selected_criteria:
-    st.markdown(f"**{crit}:** {criteria_options[crit]}", unsafe_allow_html=True)
-
-# Get scenario names from the scenario table
-scenario_names = [col.replace(" (%)","") for col in edited_scenario_df.columns[1:]]
-
-if "prev_selected_criteria" not in st.session_state:
-    st.session_state["prev_selected_criteria"] = []
-
-if "criteria_data" not in st.session_state:
-    st.session_state["criteria_data"] = pd.DataFrame()
-
-# Only rebuild or update criteria_data if the set of criteria changes
-if selected_criteria:
-    if set(selected_criteria) != set(st.session_state["prev_selected_criteria"]):
-        criteria_df = st.session_state["criteria_data"].copy()
-        if criteria_df.empty or list(criteria_df["Scenario"]) != scenario_names:
-            criteria_df = pd.DataFrame({"Scenario": scenario_names})
-
-        # Add missing columns
-        for c in selected_criteria:
-            if c not in criteria_df.columns and c != "Scenario":
-                criteria_df[c] = 0
-
-        # Remove columns not in selected_criteria
-        for c in list(criteria_df.columns):
-            if c != "Scenario" and c not in selected_criteria:
-                criteria_df.drop(columns=c, inplace=True)
-
-        st.session_state["criteria_data"] = criteria_df
-        st.session_state["prev_selected_criteria"] = selected_criteria.copy()
-    else:
-        criteria_df = st.session_state["criteria_data"].copy()
-
-    st.write("Please assign values for each selected criterion to each scenario. Double-click a cell to edit. For (1-10) criteria, only enter values between 1 and 10.")
-
-    scale_criteria = {
-        "Technical Feasibility", "Supplier Reliability and Technology Readiness", "Implementation Complexity",
-        "Scalability", "Maintenance Requirements", "Regulatory Compliance", "Risk for Workforce Safety",
-        "Risk for Operations", "Impact on Product Quality", "Customer and Stakeholder Alignment",
-        "Priority for our organisation"
-    }
-
-    if other_name.strip() and other_name.strip() in selected_criteria and other_scale == "Yes":
-        scale_criteria.add(other_name.strip())
-
-    column_config = {}
-    column_config["Scenario"] = st.column_config.TextColumn("Scenario", disabled=True)
-    for crit in selected_criteria:
-        if crit in scale_criteria:
-            column_config[crit] = st.column_config.NumberColumn(label=crit, min_value=1, max_value=10)
-        elif crit in ["Initial investment (£)", "Return on Investment (ROI)(years)"]:
-            column_config[crit] = st.column_config.NumberColumn(label=crit)
-        else:
-            column_config[crit] = st.column_config.NumberColumn(label=crit)
-
-    try:
-        edited_criteria_df = st.data_editor(
-            criteria_df, 
-            use_container_width=True, 
-            column_config=column_config, 
-            key="criteria_editor"
-        )
-    except AttributeError:
-        edited_criteria_df = st.experimental_data_editor(criteria_df, use_container_width=True)
-
-    # Update criteria data after editing
-    st.session_state["criteria_data"] = edited_criteria_df
-else:
-    # If no criteria selected, keep criteria_data as empty
-    st.session_state["criteria_data"] = pd.DataFrame()
-    st.session_state["prev_selected_criteria"] = []
-
-
-# The button now says "Run the model" instead of "Normalize Data"
-if selected_criteria and not edited_criteria_df.empty:
-    if st.button("Run the model"):
-        scaled_criteria_df = edited_criteria_df.copy()
-
-        inversion_criteria = []
-        if "Return on Investment (ROI)(years)" in selected_criteria:
-            inversion_criteria.append("Return on Investment (ROI)(years)")
-        if "Initial investment (£)" in selected_criteria:
-            inversion_criteria.append("Initial investment (£)")
-
-        # Apply other criterion scale logic
-        if other_name.strip():
-            if other_scale == "No":
-                # Lower = better
-                inversion_criteria.append(other_name.strip())
-            else:
-                scale_criteria.add(other_name.strip())
-
-        # Normalize values
-        for crit in selected_criteria:
-            values = scaled_criteria_df[crit].values.astype(float)
-            min_val = np.min(values)
-            max_val = np.max(values)
-
-            if crit in scale_criteria:
-                # Already 1-10, higher better, do nothing
-                pass
-            elif crit in inversion_criteria:
-                # Invert scale: lower -> 10, higher -> 1
-                if max_val == min_val:
-                    scaled_values = np.ones_like(values) * 10
-                else:
-                    scaled_values = 10 - 9 * (values - min_val) / (max_val - min_val)
-                scaled_criteria_df[crit] = scaled_values
-            else:
-                # Scale min=1, max=10 (higher better)
-                if max_val == min_val:
-                    scaled_values = np.ones_like(values) * 10
-                else:
-                    scaled_values = 1 + 9 * (values - min_val) / (max_val - min_val)
-                scaled_criteria_df[crit] = scaled_values
-
-        st.write("### Normalised Results (All Criteria Scaled 1-10)")
-        st.dataframe(scaled_criteria_df)
-
-        # Create a summary table: sum each scenario's criteria
-        # "Scenario" column identifies scenario
-        # Criteria columns are all others
-        # Sum across criteria for each scenario (each row is a scenario)
-        sum_df = scaled_criteria_df.copy()
-        # Calculate total score by summing all criteria columns except "Scenario"
-        sum_df["Total Score"] = sum_df.drop(columns=["Scenario"]).sum(axis=1)
-        # Rank scenarios by total score (higher is better), rank 1 = best
-        sum_df["Rank"] = sum_df["Total Score"].rank(method="dense", ascending=False).astype(int)
-
-        st.write("### Total Scores and Ranking")
-        # Apply a heatmap style based on Total Score
-        styled_sum_df = sum_df.style.background_gradient(
-            cmap='RdYlGn', 
-            subset=["Total Score"], 
-            low=0, high=0
-        )
-
-        st.dataframe(styled_sum_df)
-else:
-    st.write("No criteria selected or no data available to scale.")
+# Handle Total Scores and Ranking
+try:
+    sum_df = results_df.copy()
+    sum_df["Total Score"] = sum_df.drop(columns=["Scenario"]).sum(axis=1)
+    sum_df["Rank"] = sum_df["Total Score"].rank(method="dense", ascending=False).astype(int)
+    st.write("### Total Scores and Ranking")
+    st.dataframe(sum_df)
+except ImportError:
+    st.write("To visualize rankings with gradient styles, ensure `matplotlib` is installed.")
