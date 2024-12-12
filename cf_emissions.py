@@ -1,4 +1,4 @@
-pip install openai
+-m pip install openai
 
 import pandas as pd
 import streamlit as st
