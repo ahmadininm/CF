@@ -161,7 +161,6 @@ other_scale = ""
 # Ask about additional criteria
 st.write("Apart from the environmental impact (e.g., CO₂ saved) calculated above, which of the following criteria are also important to your organisation? Please select all that apply and then assign values for each scenario.")
 
-# Criteria options
 criteria_options = {
     "Technical Feasibility": "<span style='color:red;'>1-4: low feasibility</span>, <span style='color:orange;'>5-6: moderate</span>, <span style='color:green;'>7-10: high feasibility</span>",
     "Supplier Reliability and Technology Readiness": "<span style='color:red;'>1-4: unreliable/immature</span>, <span style='color:orange;'>5-6: mostly reliable</span>, <span style='color:green;'>7-10: fully reliable & proven</span>",
@@ -198,8 +197,7 @@ if "Other" in selected_criteria:
 for crit in selected_criteria:
     st.markdown(f"**{crit}:** {criteria_options[crit]}", unsafe_allow_html=True)
 
-# Minimal changes: get scenario_names from the scenario table rather than results_df
-# This ensures if there are multiple scenarios, they appear correctly.
+# Get scenario names from the scenario table
 scenario_names = [col.replace(" (%)","") for col in edited_scenario_df.columns[1:]]
 
 if "prev_selected_criteria" not in st.session_state:
@@ -209,18 +207,15 @@ if "criteria_data" not in st.session_state:
     st.session_state["criteria_data"] = pd.DataFrame()
 
 if selected_criteria:
-    # If criteria changed, adjust the data structure
     if set(selected_criteria) != set(st.session_state["prev_selected_criteria"]):
         criteria_df = st.session_state["criteria_data"].copy()
         if criteria_df.empty or list(criteria_df["Scenario"]) != scenario_names:
             criteria_df = pd.DataFrame({"Scenario": scenario_names})
 
-        # Add missing criteria columns
         for c in selected_criteria:
             if c not in criteria_df.columns and c != "Scenario":
                 criteria_df[c] = 0
 
-        # Remove any columns not in selected_criteria
         for c in list(criteria_df.columns):
             if c != "Scenario" and c not in selected_criteria:
                 criteria_df.drop(columns=c, inplace=True)
@@ -262,43 +257,45 @@ else:
     st.session_state["criteria_data"] = pd.DataFrame()
     st.session_state["prev_selected_criteria"] = []
 
-# Scaling logic
-if selected_criteria and 'edited_criteria_df' in locals() and edited_criteria_df is not None and not edited_criteria_df.empty:
-    scaled_criteria_df = edited_criteria_df.copy()
 
-    inversion_criteria = []
-    if "Return on Investment (ROI)(years)" in selected_criteria:
-        inversion_criteria.append("Return on Investment (ROI)(years)")
-    if "Initial investment (£)" in selected_criteria:
-        inversion_criteria.append("Initial investment (£)")
+# ADD A BUTTON TO NORMALIZE DATA INSTEAD OF DOING IT AUTOMATICALLY
+if selected_criteria and not edited_criteria_df.empty:
+    if st.button("Normalize Data"):
+        scaled_criteria_df = edited_criteria_df.copy()
 
-    if other_name.strip():
-        if other_scale == "No":
-            inversion_criteria.append(other_name.strip())
-        else:
-            scale_criteria.add(other_name.strip())
+        inversion_criteria = []
+        if "Return on Investment (ROI)(years)" in selected_criteria:
+            inversion_criteria.append("Return on Investment (ROI)(years)")
+        if "Initial investment (£)" in selected_criteria:
+            inversion_criteria.append("Initial investment (£)")
 
-    for crit in selected_criteria:
-        values = scaled_criteria_df[crit].values.astype(float)
-        min_val = np.min(values)
-        max_val = np.max(values)
-
-        if crit in scale_criteria:
-            pass
-        elif crit in inversion_criteria:
-            if max_val == min_val:
-                scaled_values = np.ones_like(values) * 10
+        if other_name.strip():
+            if other_scale == "No":
+                inversion_criteria.append(other_name.strip())
             else:
-                scaled_values = 10 - 9 * (values - min_val) / (max_val - min_val)
-            scaled_criteria_df[crit] = scaled_values
-        else:
-            if max_val == min_val:
-                scaled_values = np.ones_like(values) * 10
-            else:
-                scaled_values = 1 + 9 * (values - min_val) / (max_val - min_val)
-            scaled_criteria_df[crit] = scaled_values
+                scale_criteria.add(other_name.strip())
 
-    st.write("### Normalised Results (All Criteria Scaled 1-10)")
-    st.dataframe(scaled_criteria_df)
+        for crit in selected_criteria:
+            values = scaled_criteria_df[crit].values.astype(float)
+            min_val = np.min(values)
+            max_val = np.max(values)
+
+            if crit in scale_criteria:
+                pass
+            elif crit in inversion_criteria:
+                if max_val == min_val:
+                    scaled_values = np.ones_like(values) * 10
+                else:
+                    scaled_values = 10 - 9 * (values - min_val) / (max_val - min_val)
+                scaled_criteria_df[crit] = scaled_values
+            else:
+                if max_val == min_val:
+                    scaled_values = np.ones_like(values) * 10
+                else:
+                    scaled_values = 1 + 9 * (values - min_val) / (max_val - min_val)
+                scaled_criteria_df[crit] = scaled_values
+
+        st.write("### Normalised Results (All Criteria Scaled 1-10)")
+        st.dataframe(scaled_criteria_df)
 else:
     st.write("No criteria selected or no data available to scale.")
