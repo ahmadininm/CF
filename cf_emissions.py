@@ -92,7 +92,10 @@ def main():
 
     # Create a DataFrame with one column per scenario
     scenario_columns = ["Item"] + [f"Scenario {i+1} (%)" for i in range(num_scenarios)]
-    scenario_data = [[item] + [100.0]*num_scenarios for item in bau_data["Item"]]
+    if 'edited_scenario_df' in st.session_state:
+        scenario_data = st.session_state['edited_scenario_df'].values.tolist()
+    else:
+        scenario_data = [[item] + [100.0]*num_scenarios for item in bau_data["Item"]]
     scenario_df = pd.DataFrame(scenario_data, columns=scenario_columns)
 
     st.write("Please adjust the percentages for each scenario. Double-click a cell to edit the value.")
@@ -103,6 +106,9 @@ def main():
         edited_scenario_df = st.data_editor(scenario_df, use_container_width=True)
     except AttributeError:
         edited_scenario_df = st.experimental_data_editor(scenario_df, use_container_width=True)
+
+    # Save edited scenario data to session state
+    st.session_state['edited_scenario_df'] = edited_scenario_df
 
     # Convert columns (except Item) to numeric
     for col in edited_scenario_df.columns[1:]:
@@ -170,6 +176,8 @@ def main():
         list(criteria_options.keys())
     )
 
+    other_name = ""
+    other_scale = ""
     # If user selected "Other", ask for custom criterion name and a yes/no question
     if "Other" in selected_criteria:
         other_name = st.text_input("Enter the name for the 'Other' criterion:")
@@ -239,53 +247,54 @@ def main():
 
         # Only proceed if criteria were selected and edited_criteria_df is defined
         if selected_criteria and 'edited_criteria_df' in locals() and edited_criteria_df is not None and not edited_criteria_df.empty:
-            # Create a copy for scaled results
-            scaled_criteria_df = edited_criteria_df.copy()
+            if st.button("Run Model"):
+                # Create a copy for scaled results
+                scaled_criteria_df = edited_criteria_df.copy()
 
-            # Define which criteria need inversion (lower is better)
-            inversion_criteria = []
-            if "Return on Investment (ROI)(years)" in selected_criteria:
-                inversion_criteria.append("Return on Investment (ROI)(years)")
-            if "Initial investment (£)" in selected_criteria:
-                inversion_criteria.append("Initial investment (£)")
+                # Define which criteria need inversion (lower is better)
+                inversion_criteria = []
+                if "Return on Investment (ROI)(years)" in selected_criteria:
+                    inversion_criteria.append("Return on Investment (ROI)(years)")
+                if "Initial investment (£)" in selected_criteria:
+                    inversion_criteria.append("Initial investment (£)")
 
-            # Handle the 'Other' criterion if applicable
-            if 'other_name' in locals() and other_name.strip():
-                if other_scale == "No":
-                    # Add other_name to inversion criteria
-                    inversion_criteria.append(other_name.strip())
-                else:
-                    # other_scale == "Yes" means higher is better, so treat it as a scale criterion
-                    scale_criteria.add(other_name.strip())
-
-            # Now scale each criterion
-            for crit in selected_criteria:
-                values = scaled_criteria_df[crit].values.astype(float)
-                min_val = np.min(values)
-                max_val = np.max(values)
-
-                if crit in scale_criteria:
-                    # Already 1-10 scale where higher is better. Just ensure values are valid.
-                    pass
-
-                elif crit in inversion_criteria:
-                    # Invert scale: lower value -> 10, higher value -> 1
-                    if max_val == min_val:
-                        scaled_values = np.ones_like(values) * 10 if min_val != 0 else np.zeros_like(values)
+                # Handle the 'Other' criterion if applicable
+                if other_name.strip():
+                    if other_scale == "No":
+                        # Add other_name to inversion criteria
+                        inversion_criteria.append(other_name.strip())
                     else:
-                        scaled_values = 10 - 9 * (values - min_val) / (max_val - min_val)
-                    scaled_criteria_df[crit] = scaled_values
+                        # other_scale == "Yes" means higher is better, so treat it as a scale criterion
+                        scale_criteria.add(other_name.strip())
 
-                else:
-                    # For non-scale criteria that are not inverted, scale so min=1, max=10 (higher is better)
-                    if max_val == min_val:
-                        scaled_values = np.ones_like(values) * 10 if min_val != 0 else np.zeros_like(values)
+                # Now scale each criterion
+                for crit in selected_criteria:
+                    values = scaled_criteria_df[crit].values.astype(float)
+                    min_val = np.min(values)
+                    max_val = np.max(values)
+
+                    if crit in scale_criteria:
+                        # Already 1-10 scale where higher is better. Just ensure values are valid.
+                        pass
+
+                    elif crit in inversion_criteria:
+                        # Invert scale: lower value -> 10, higher value -> 1
+                        if max_val == min_val:
+                            scaled_values = np.ones_like(values) * 10 if min_val != 0 else np.zeros_like(values)
+                        else:
+                            scaled_values = 10 - 9 * (values - min_val) / (max_val - min_val)
+                        scaled_criteria_df[crit] = scaled_values
+
                     else:
-                        scaled_values = 1 + 9 * (values - min_val) / (max_val - min_val)
-                    scaled_criteria_df[crit] = scaled_values
+                        # For non-scale criteria that are not inverted, scale so min=1, max=10 (higher is better)
+                        if max_val == min_val:
+                            scaled_values = np.ones_like(values) * 10 if min_val != 0 else np.zeros_like(values)
+                        else:
+                            scaled_values = 1 + 9 * (values - min_val) / (max_val - min_val)
+                        scaled_criteria_df[crit] = scaled_values
 
-            st.write("### Normalised Results (All Criteria Scaled 1-10)")
-            st.dataframe(scaled_criteria_df)
+                st.write("### Normalised Results (All Criteria Scaled 1-10)")
+                st.dataframe(scaled_criteria_df)
         else:
             st.write("No criteria selected or no data available to scale.")
 
