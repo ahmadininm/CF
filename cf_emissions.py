@@ -4,9 +4,6 @@ import numpy as np
 import openai
 import json
 
-
-
-
 def main():
     # Set page configuration
     st.set_page_config(page_title="Sustainability Decision Assistant", layout="wide")
@@ -15,20 +12,21 @@ def main():
     st.title("Sustainability Decision Assistant")
     st.write("*A tool to prioritize scenarios for carbon savings and resource efficiency, enabling data-driven sustainable decisions.*")
 
+    # Debugging: Display OpenAI package version
+    try:
+        st.write(f"**OpenAI Package Version:** {openai.__version__}")
+    except AttributeError:
+        st.write("**OpenAI Package Version:** Not Found")
+
     # ----------------------- OpenAI API Key Setup -----------------------
 
     # Retrieve OpenAI API key from Streamlit Secrets
     try:
         openai.api_key = st.secrets["OPENAI_API_KEY"]
-
-
-    
     except KeyError:
         st.error("OpenAI API key not found. Please set it in the Streamlit Secrets.")
         st.stop()
 
-
-   
     # ----------------------- BAU Inputs -----------------------
 
     st.subheader("Enter Daily Usage for Business As Usual (BAU)")
@@ -257,52 +255,94 @@ def main():
 
     # If criteria selected, display an editable table for scenarios vs criteria
     if selected_criteria:
-        scenario_names = results_df["Scenario"].tolist()
-        criteria_df = pd.DataFrame(columns=["Scenario"] + selected_criteria)
-        criteria_df["Scenario"] = scenario_names
+        # Ensure results_df is defined before using it
+        if 'results_df' not in locals():
+            st.warning("Please run the model to generate scenario results first.")
+        else:
+            scenario_names = results_df["Scenario"].tolist()
+            criteria_df = pd.DataFrame(columns=["Scenario"] + selected_criteria)
+            criteria_df["Scenario"] = scenario_names
 
-        # Initialize all values to 0
-        for c in selected_criteria:
-            criteria_df[c] = 0
+            # Initialize all values to 1 for scale-based criteria
+            for c in selected_criteria:
+                criteria_df[c] = 1
 
-        st.write("Please assign values for each selected criterion to each scenario. Double-click a cell to edit. For (1-10) criteria, only enter values between 1 and 10.")
+            st.write("Please assign values for each selected criterion to each scenario. Double-click a cell to edit. For (1-10) criteria, only enter values between 1 and 10.")
 
-        # Determine which criteria are scale-based (1-10) and which are free input
-        scale_criteria = {
-            "Technical Feasibility", "Supplier Reliability and Technology Readiness", "Implementation Complexity",
-            "Scalability", "Maintenance Requirements", "Regulatory Compliance", "Risk for Workforce Safety",
-            "Risk for Operations", "Impact on Product Quality", "Customer and Stakeholder Alignment",
-            "Priority for our organisation"
-        }
+            # Determine which criteria are scale-based (1-10) and which are free input
+            scale_criteria = {
+                "Technical Feasibility", "Supplier Reliability and Technology Readiness", "Implementation Complexity",
+                "Scalability", "Maintenance Requirements", "Regulatory Compliance", "Risk for Workforce Safety",
+                "Risk for Operations", "Impact on Product Quality", "Customer and Stakeholder Alignment",
+                "Priority for our organisation"
+            }
 
-        # Handle the "Other" criterion if applicable
-        if "other_name_input" in st.session_state and st.session_state.get("other_scale_radio") == "No" and st.session_state.get("other_name_input", "").strip():
-            other_name_str = st.session_state["other_name_input"].strip()
-            scale_criteria.add(other_name_str)
-        elif "other_name_input" in st.session_state and st.session_state.get("other_scale_radio") == "Yes" and st.session_state.get("other_name_input", "").strip():
-            pass  # Higher is better, do not invert
+            # Handle the "Other" criterion if applicable
+            if "other_name_input" in st.session_state and st.session_state.get("other_scale_radio") == "No" and st.session_state.get("other_name_input", "").strip():
+                other_name_str = st.session_state["other_name_input"].strip()
+                scale_criteria.add(other_name_str)
+            elif "other_name_input" in st.session_state and st.session_state.get("other_scale_radio") == "Yes" and st.session_state.get("other_name_input", "").strip():
+                pass  # Higher is better, do not invert
 
-        # Editable table for criteria values
-        try:
-            edited_criteria_df = st.data_editor(criteria_df, use_container_width=True, key="criteria_editor")
-        except AttributeError:
-            edited_criteria_df = st.experimental_data_editor(criteria_df, use_container_width=True, key="criteria_editor")
+            # Editable table for criteria values with input constraints
+            try:
+                edited_criteria_df = st.data_editor(
+                    criteria_df,
+                    use_container_width=True,
+                    key="criteria_editor",
+                    num_rows="dynamic",
+                    disabled=False,
+                    columns=[
+                        {"id": "Scenario", "name": "Scenario", "editable": False},
+                    ] + [
+                        {
+                            "id": c, 
+                            "name": c, 
+                            "type": "number", 
+                            "format": {"specifier": "d"}, 
+                            "min": 1, 
+                            "max": 10
+                        } if c in scale_criteria else {"id": c, "name": c, "type": "number"}
+                        for c in selected_criteria
+                    ]
+                )
+            except AttributeError:
+                edited_criteria_df = st.experimental_data_editor(
+                    criteria_df,
+                    use_container_width=True,
+                    key="criteria_editor",
+                    num_rows="dynamic",
+                    disabled=False,
+                    columns=[
+                        {"id": "Scenario", "name": "Scenario", "editable": False},
+                    ] + [
+                        {
+                            "id": c, 
+                            "name": c, 
+                            "type": "number", 
+                            "format": {"specifier": "d"}, 
+                            "min": 1, 
+                            "max": 10
+                        } if c in scale_criteria else {"id": c, "name": c, "type": "number"}
+                        for c in selected_criteria
+                    ]
+                )
 
-        # ----------------------- AI-Based Scoring -----------------------
+            # ----------------------- AI-Based Scoring -----------------------
 
-        # Assign default scores based on scenario descriptions using AI analysis
-        if 'edited_scenario_desc_df' in st.session_state:
-            scenario_desc = st.session_state['edited_scenario_desc_df']
-            if not scenario_desc.empty:
-                for idx, row in scenario_desc.iterrows():
-                    description = row["Description"].strip()
-                    scenario = row["Scenario"]
+            # Assign default scores based on scenario descriptions using AI analysis
+            if 'edited_scenario_desc_df' in st.session_state:
+                scenario_desc = st.session_state['edited_scenario_desc_df']
+                if not scenario_desc.empty:
+                    for idx, row in scenario_desc.iterrows():
+                        description = row["Description"].strip()
+                        scenario = row["Scenario"]
 
-                    if description == "":
-                        continue  # Skip empty descriptions
+                        if description == "":
+                            continue  # Skip empty descriptions
 
-                    # Prepare the prompt for the AI model
-                    prompt = f"""
+                        # Prepare the prompt for the AI model
+                        prompt = f"""
 You are an expert sustainability analyst. Based on the following scenario description, assign a score between 1 and 10 for each of the selected sustainability criteria. Provide only the scores in JSON format.
 
 ### Scenario Description:
@@ -314,51 +354,53 @@ You are an expert sustainability analyst. Based on the following scenario descri
 ### JSON Output:
 """
 
-                    try:
-                        response = openai.Completion.create(
-                            engine="text-davinci-003",
-                            prompt=prompt,
-                            max_tokens=150,
-                            temperature=0.3,
-                            n=1,
-                            stop=None
-                        )
-                        ai_output = response.choices[0].text.strip()
-                        # Attempt to parse the JSON output
                         try:
-                            scores = json.loads(ai_output)
-                            if isinstance(scores, dict):
-                                for crit in selected_criteria:
-                                    if crit in scores:
-                                        score = scores[crit]
-                                        # Validate score is between 1 and 10
-                                        if isinstance(score, (int, float)) and 1 <= score <= 10:
-                                            criteria_df.loc[criteria_df["Scenario"] == scenario, crit] = score
+                            response = openai.Completion.create(
+                                engine="text-davinci-003",
+                                prompt=prompt,
+                                max_tokens=150,
+                                temperature=0.3,
+                                n=1,
+                                stop=None
+                            )
+                            ai_output = response.choices[0].text.strip()
+                            # Attempt to parse the JSON output
+                            try:
+                                scores = json.loads(ai_output)
+                                if isinstance(scores, dict):
+                                    for crit in selected_criteria:
+                                        if crit in scores:
+                                            score = scores[crit]
+                                            # Validate score is between 1 and 10
+                                            if isinstance(score, (int, float)) and 1 <= score <= 10:
+                                                criteria_df.loc[criteria_df["Scenario"] == scenario, crit] = score
+                                            else:
+                                                criteria_df.loc[criteria_df["Scenario"] == scenario, crit] = 5  # Neutral score
                                         else:
-                                            criteria_df.loc[criteria_df["Scenario"] == scenario, crit] = 5  # Neutral score
-                                    else:
-                                        # If criterion not in scores, assign neutral
+                                            # If criterion not in scores, assign neutral
+                                            criteria_df.loc[criteria_df["Scenario"] == scenario, crit] = 5
+                                else:
+                                    # If not a dict, assign neutral scores
+                                    for crit in selected_criteria:
                                         criteria_df.loc[criteria_df["Scenario"] == scenario, crit] = 5
-                            else:
-                                # If not a dict, assign neutral scores
+                            except json.JSONDecodeError:
+                                # If JSON parsing fails, assign neutral scores
                                 for crit in selected_criteria:
                                     criteria_df.loc[criteria_df["Scenario"] == scenario, crit] = 5
-                        except json.JSONDecodeError:
-                            # If JSON parsing fails, assign neutral scores
+                        except openai.error.OpenAIError as e:
+                            st.error(f"Error with OpenAI API: {e}")
                             for crit in selected_criteria:
                                 criteria_df.loc[criteria_df["Scenario"] == scenario, crit] = 5
-                    except openai.error.OpenAIError as e:
-                        st.error(f"Error with OpenAI API: {e}")
-                        for crit in selected_criteria:
-                            criteria_df.loc[criteria_df["Scenario"] == scenario, crit] = 5
+                        except Exception as e:
+                            st.error(f"An unexpected error occurred: {e}")
+                            for crit in selected_criteria:
+                                criteria_df.loc[criteria_df["Scenario"] == scenario, crit] = 5
 
-
-
-                # Update the criteria_df with assigned scores
-                try:
-                    edited_criteria_df = st.data_editor(criteria_df, use_container_width=True, key="criteria_editor_with_scores")
-                except AttributeError:
-                    edited_criteria_df = st.experimental_data_editor(criteria_df, use_container_width=True, key="criteria_editor_with_scores")
+                    # Update the criteria_df with assigned scores
+                    try:
+                        edited_criteria_df = st.data_editor(criteria_df, use_container_width=True, key="criteria_editor_with_scores")
+                    except AttributeError:
+                        edited_criteria_df = st.experimental_data_editor(criteria_df, use_container_width=True, key="criteria_editor_with_scores")
 
     # ----------------------- Run Model -----------------------
 
@@ -404,9 +446,9 @@ You are an expert sustainability analyst. Based on the following scenario descri
                         scaled_criteria_df[crit] = scaled_values
 
                     elif crit in scale_criteria:
-                        # Already 1-10 scale where higher is better. Just ensure values are valid.
-                        # Optionally, you can normalize or keep as is.
-                        pass
+                        # Already 1-10 scale where higher is better. Ensure values are within 1-10
+                        scaled_values = np.clip(values, 1, 10)
+                        scaled_criteria_df[crit] = scaled_values
 
                     else:
                         # For non-scale criteria that are not inverted, scale so min=1, max=10 (higher is better)
