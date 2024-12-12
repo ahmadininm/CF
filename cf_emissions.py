@@ -1,9 +1,29 @@
-
 import pandas as pd
 import streamlit as st
 import numpy as np
+import openai
+import os
 
 def main():
+    # Set page configuration
+    st.set_page_config(page_title="Sustainability Decision Assistant", layout="wide")
+
+    # Initialize OpenAI API key from environment variable or Streamlit secrets
+    if "openai_api_key" not in st.session_state:
+        st.session_state["openai_api_key"] = st.text_input(
+            "Enter your OpenAI API Key:",
+            type="password",
+            help="You can obtain an API key from https://platform.openai.com/account/api-keys",
+        )
+    
+    openai_api_key = st.session_state.get("openai_api_key")
+
+    if not openai_api_key:
+        st.warning("Please enter your OpenAI API key to proceed.")
+        st.stop()
+    
+    openai.api_key = openai_api_key
+
     # Default materials and energy (units changed to use m³/day)
     default_items = [
         "Gas (kWh/day)", 
@@ -47,10 +67,19 @@ def main():
     # Option to add custom items
     st.subheader("Add Custom Items (Optional)")
     st.write("If there are any additional sources of emissions not accounted for above, you can add them here.")
-    if st.checkbox("Add custom items?"):
-        num_custom_items = st.number_input("How many custom items would you like to add?", min_value=1, step=1, value=1, key="num_custom_items")
+    if st.checkbox("Add custom items?", key="add_custom_items_checkbox"):
+        num_custom_items = st.number_input(
+            "How many custom items would you like to add?",
+            min_value=1,
+            step=1,
+            value=1,
+            key="num_custom_items_input"
+        )
         for i in range(int(num_custom_items)):
-            item_name = st.text_input(f"Custom Item {i + 1} Name:", key=f"custom_item_name_{i}")
+            item_name = st.text_input(
+                f"Custom Item {i + 1} Name:",
+                key=f"custom_item_name_{i}"
+            )
             emission_factor = st.number_input(
                 f"Custom Item {i + 1} Emission Factor (kg CO₂e/unit):", 
                 min_value=0.0000001, 
@@ -65,10 +94,11 @@ def main():
                 value=0.0,
                 key=f"custom_usage_{i}"
             )
-            # Add to BAU Data
-            new_row = pd.DataFrame({"Item": [item_name], "Daily Usage (Units)": [usage]})
-            bau_data = pd.concat([bau_data, new_row], ignore_index=True)
-            emission_factors[item_name] = emission_factor
+            # Add to BAU Data if item name is provided
+            if item_name.strip() != "":
+                new_row = pd.DataFrame({"Item": [item_name], "Daily Usage (Units)": [usage]})
+                bau_data = pd.concat([bau_data, new_row], ignore_index=True)
+                emission_factors[item_name] = emission_factor
 
     # Fill missing emission factors in the DataFrame
     bau_data["Emission Factor (kg CO₂e/unit)"] = bau_data["Item"].map(emission_factors).fillna(0)
@@ -90,7 +120,13 @@ def main():
 
     # Scenario Planning
     st.subheader("Scenario Planning (Editable Table)")
-    num_scenarios = st.number_input("How many scenarios do you want to add?", min_value=1, step=1, value=1, key="num_scenarios")
+    num_scenarios = st.number_input(
+        "How many scenarios do you want to add?",
+        min_value=1,
+        step=1,
+        value=1,
+        key="num_scenarios_input_2"
+    )
 
     # Create a DataFrame for scenario descriptions
     scenario_desc_columns = ["Scenario", "Description"]
@@ -99,7 +135,7 @@ def main():
 
     st.write("Please describe each scenario. Double-click a cell to edit the description.")
 
-    # If st.data_editor is not available, use st.experimental_data_editor
+    # Editable table for scenario descriptions
     try:
         edited_scenario_desc_df = st.data_editor(scenario_desc_df, use_container_width=True, key="scenario_desc_editor")
     except AttributeError:
@@ -116,7 +152,7 @@ def main():
     st.write("Please adjust the percentages for each scenario. Double-click a cell to edit the value.")
     st.write("The percentage represents usage relative to BAU. For example, 90% means the item is at 90% of its BAU usage, thereby achieving a 10% reduction.")
 
-    # If st.data_editor is not available, use st.experimental_data_editor
+    # Editable table for scenario percentages
     try:
         edited_scenario_df = st.data_editor(scenario_df, use_container_width=True, key="scenario_percent_editor")
     except AttributeError:
@@ -187,13 +223,21 @@ def main():
     # Let user select criteria
     selected_criteria = st.multiselect(
         "Select the criteria you want to consider:",
-        list(criteria_options.keys())
+        list(criteria_options.keys()),
+        key="selected_criteria_multiselect"
     )
 
     # If user selected "Other", ask for custom criterion name and a yes/no question
     if "Other" in selected_criteria:
-        other_name = st.text_input("Enter the name for the 'Other' criterion:", key="other_name")
-        other_scale = st.radio("Does a higher number represent a more beneficial (e.g., more sustainable) outcome for this 'Other' criterion?", ["Yes", "No"], key="other_scale")
+        other_name = st.text_input(
+            "Enter the name for the 'Other' criterion:",
+            key="other_name_input"
+        )
+        other_scale = st.radio(
+            "Does a higher number represent a more beneficial (e.g., more sustainable) outcome for this 'Other' criterion?", 
+            ["Yes", "No"], 
+            key="other_scale_radio"
+        )
         if other_name.strip():
             # Replace "Other" with user-defined name
             selected_criteria.remove("Other")
@@ -228,174 +272,146 @@ def main():
             "Priority for our organisation"
         }
 
-        # Also consider the "Other" criterion if added as scale-based (since we said 1-10 scale)
-        if "other_name" in st.session_state and st.session_state["other_scale"] == "No" and other_name.strip():
-            scale_criteria.add(other_name.strip())
-        elif "other_name" in st.session_state and st.session_state["other_scale"] == "Yes" and other_name.strip():
+        # Handle the "Other" criterion if applicable
+        if "other_name_input" in st.session_state and st.session_state.get("other_scale_radio") == "No" and st.session_state.get("other_name_input", "").strip():
+            other_name_str = st.session_state["other_name_input"].strip()
+            scale_criteria.add(other_name_str)
+        elif "other_name_input" in st.session_state and st.session_state.get("other_scale_radio") == "Yes" and st.session_state.get("other_name_input", "").strip():
             pass  # Higher is better, do not invert
 
-        # Create column configs for st.data_editor if available (Streamlit 1.22+)
-        column_config = {}
-        column_config["Scenario"] = st.column_config.TextColumn("Scenario", disabled=True)
-        for crit in selected_criteria:
-            if crit in scale_criteria:
-                # Numeric column with 1-10 limits
-                column_config[crit] = st.column_config.NumberColumn(label=crit, min_value=1, max_value=10, step=1)
-            elif crit in ["Initial investment (£)", "Return on Investment (ROI)(years)"]:
-                # Numeric column with no strict limit
-                column_config[crit] = st.column_config.NumberColumn(label=crit)
-            else:
-                # Other criterion might not have a scale, assume free numeric input
-                column_config[crit] = st.column_config.NumberColumn(label=crit)
-
-        criteria_df.index = range(1, len(criteria_df) + 1)  # Start indexing from 1
-
+        # Editable table for criteria values
         try:
-            edited_criteria_df = st.data_editor(criteria_df, use_container_width=True, column_config=column_config, key="criteria_editor")
+            edited_criteria_df = st.data_editor(criteria_df, use_container_width=True, key="criteria_editor")
         except AttributeError:
             edited_criteria_df = st.experimental_data_editor(criteria_df, use_container_width=True, key="criteria_editor")
 
-        # After editing, `edited_criteria_df` contains the final user inputs
+        # Assign default scores based on scenario descriptions using AI analysis
+        if 'edited_scenario_desc_df' in st.session_state:
+            scenario_desc = st.session_state['edited_scenario_desc_df']
+            if not scenario_desc.empty:
+                # Iterate over each scenario and assign scores using OpenAI's GPT-4
+                for idx, row in scenario_desc.iterrows():
+                    description = row["Description"].strip()
+                    scenario = row["Scenario"]
+
+                    if description == "":
+                        continue  # Skip empty descriptions
+
+                    # Prepare the prompt for the AI model
+                    prompt = f"""
+You are an expert sustainability analyst. Based on the following scenario description, assign a score between 1 and 10 for each of the selected sustainability criteria. Provide only the scores in JSON format where the keys are the criteria names and the values are the scores.
+
+### Scenario Description:
+{description}
+
+### Criteria to Evaluate:
+{selected_criteria}
+
+### JSON Output:
+"""
+
+                    try:
+                        response = openai.Completion.create(
+                            engine="text-davinci-003",
+                            prompt=prompt,
+                            max_tokens=150,
+                            temperature=0.3,
+                            n=1,
+                            stop=None
+                        )
+                        ai_output = response.choices[0].text.strip()
+                        # Attempt to parse the JSON output
+                        try:
+                            scores = eval(ai_output)  # Caution: Using eval can be risky. Ensure input is trusted.
+                            if isinstance(scores, dict):
+                                for crit in selected_criteria:
+                                    if crit in scores:
+                                        score = scores[crit]
+                                        # Validate score is between 1 and 10
+                                        if isinstance(score, (int, float)) and 1 <= score <= 10:
+                                            criteria_df.loc[criteria_df["Scenario"] == scenario, crit] = score
+                                        else:
+                                            criteria_df.loc[criteria_df["Scenario"] == scenario, crit] = 5  # Neutral score
+                                    else:
+                                        criteria_df.loc[criteria_df["Scenario"] == scenario, crit] = 5  # Neutral score
+                            else:
+                                # If not a dict, assign neutral scores
+                                criteria_df.loc[criteria_df["Scenario"] == scenario, selected_criteria] = 5
+                        except:
+                            # If parsing fails, assign neutral scores
+                            criteria_df.loc[criteria_df["Scenario"] == scenario, selected_criteria] = 5
+                    except Exception as e:
+                        st.error(f"Error with AI model: {e}")
+                        criteria_df.loc[criteria_df["Scenario"] == scenario, selected_criteria] = 5
+
+                # Update the criteria_df with assigned scores
+                try:
+                    edited_criteria_df = st.data_editor(criteria_df, use_container_width=True, key="criteria_editor_with_scores")
+                except AttributeError:
+                    edited_criteria_df = st.experimental_data_editor(criteria_df, use_container_width=True, key="criteria_editor_with_scores")
 
         # Only proceed if criteria were selected and edited_criteria_df is defined
         if selected_criteria and 'edited_criteria_df' in locals() and edited_criteria_df is not None and not edited_criteria_df.empty:
             if st.button("Run Model"):
-                # Assign default scores based on scenario descriptions
-                if 'edited_scenario_desc_df' in st.session_state:
-                    scenario_desc = st.session_state['edited_scenario_desc_df']
-                    # Simple keyword-based scoring
-                    keyword_scores = {
-                        "Technical Feasibility": {
-                            "low feasibility": 2,
-                            "moderate": 5,
-                            "high feasibility": 8
-                        },
-                        "Supplier Reliability and Technology Readiness": {
-                            "unreliable": 2,
-                            "immature": 2,
-                            "mostly reliable": 5,
-                            "fully reliable": 8,
-                            "reliable/mature": 8
-                        },
-                        "Implementation Complexity": {
-                            "very complex": 2,
-                            "moderate complexity": 5,
-                            "easy to implement": 8
-                        },
-                        "Scalability": {
-                            "hard to scale": 2,
-                            "moderate": 5,
-                            "easy to scale": 8
-                        },
-                        "Maintenance Requirements": {
-                            "high maintenance": 2,
-                            "moderate": 5,
-                            "low maintenance": 8
-                        },
-                        "Regulatory Compliance": {
-                            "risk of non-compliance": 2,
-                            "mostly compliant": 5,
-                            "fully compliant": 8
-                        },
-                        "Risk for Workforce Safety": {
-                            "significant safety risks": 2,
-                            "moderate risks": 5,
-                            "very low risk": 8
-                        },
-                        "Risk for Operations": {
-                            "high operational risk": 2,
-                            "moderate risk": 5,
-                            "minimal risk": 8
-                        },
-                        "Impact on Product Quality": {
-                            "reduces quality": 2,
-                            "acceptable": 5,
-                            "improves": 8,
-                            "improves or maintains quality": 8
-                        },
-                        "Customer and Stakeholder Alignment": {
-                            "low alignment": 2,
-                            "moderate": 5,
-                            "high alignment": 8
-                        },
-                        "Priority for our organisation": {
-                            "low priority": 2,
-                            "moderate": 5,
-                            "top priority": 8
-                        },
-                        # For "Other", if higher is better, no inversion needed, else, need to invert
-                    }
+                # Check if all required values are filled
+                if edited_criteria_df.isnull().values.any():
+                    st.error("Please ensure all criteria values are filled.")
+                else:
+                    # Create a copy for scaled results
+                    scaled_criteria_df = edited_criteria_df.copy()
 
-                    # Iterate over each scenario and assign scores
-                    for idx, row in scenario_desc.iterrows():
-                        description = row["Description"].lower()
-                        scenario = row["Scenario"]
+                    # Define which criteria need inversion (lower is better)
+                    inversion_criteria = []
+                    if "Return on Investment (ROI)(years)" in selected_criteria:
+                        inversion_criteria.append("Return on Investment (ROI)(years)")
+                    if "Initial investment (£)" in selected_criteria:
+                        inversion_criteria.append("Initial investment (£)")
 
-                        for crit in keyword_scores.keys():
-                            score_assigned = False
-                            for keyword, score in keyword_scores[crit].items():
-                                if keyword in description:
-                                    # Update the criteria_df with the score
-                                    if crit in selected_criteria:
-                                        criteria_df.loc[criteria_df["Scenario"] == scenario, crit] = score
-                                        score_assigned = True
-                                        break
-                            if not score_assigned:
-                                # If no keyword matched, assign a neutral score
-                                if crit in selected_criteria:
-                                    criteria_df.loc[criteria_df["Scenario"] == scenario, crit] = 5
+                    # Handle the 'Other' criterion if applicable
+                    if "other_name_input" in st.session_state and st.session_state.get("other_scale_radio") == "No" and st.session_state.get("other_name_input", "").strip():
+                        other_name_str = st.session_state["other_name_input"].strip()
+                        inversion_criteria.append(other_name_str)
 
-                # Create a copy for scaled results
-                scaled_criteria_df = edited_criteria_df.copy()
+                    # Now scale each criterion
+                    for crit in selected_criteria:
+                        try:
+                            values = scaled_criteria_df[crit].astype(float).values
+                        except:
+                            scaled_criteria_df[crit] = 5  # Assign neutral score if conversion fails
+                            values = scaled_criteria_df[crit].astype(float).values
 
-                # Define which criteria need inversion (lower is better)
-                inversion_criteria = []
-                if "Return on Investment (ROI)(years)" in selected_criteria:
-                    inversion_criteria.append("Return on Investment (ROI)(years)")
-                if "Initial investment (£)" in selected_criteria:
-                    inversion_criteria.append("Initial investment (£)")
+                        min_val = np.min(values)
+                        max_val = np.max(values)
 
-                # Handle the 'Other' criterion if applicable
-                if "Other" in selected_criteria:
-                    if other_scale == "No":
-                        # Add other_name to inversion criteria
-                        inversion_criteria.append(other_name.strip())
-                    # If other_scale == "Yes", no inversion needed
+                        if crit in inversion_criteria:
+                            # Invert scale: lower value -> 10, higher value -> 1
+                            if max_val == min_val:
+                                scaled_values = np.ones_like(values) * 10 if min_val != 0 else np.zeros_like(values)
+                            else:
+                                scaled_values = 10 - 9 * (values - min_val) / (max_val - min_val)
+                            scaled_criteria_df[crit] = scaled_values
 
-                # Now scale each criterion
-                for crit in selected_criteria:
-                    values = scaled_criteria_df[crit].values.astype(float)
-                    min_val = np.min(values)
-                    max_val = np.max(values)
+                        elif crit in scale_criteria:
+                            # Already 1-10 scale where higher is better. Just ensure values are valid.
+                            # Optionally, you can normalize or keep as is.
+                            pass
 
-                    if crit in scale_criteria and crit not in inversion_criteria:
-                        # Already 1-10 scale where higher is better. Just ensure values are valid.
-                        pass
-
-                    elif crit in inversion_criteria:
-                        # Invert scale: lower value -> 10, higher value -> 1
-                        if max_val == min_val:
-                            scaled_values = np.ones_like(values) * 10 if min_val != 0 else np.zeros_like(values)
                         else:
-                            scaled_values = 10 - 9 * (values - min_val) / (max_val - min_val)
-                        scaled_criteria_df[crit] = scaled_values
+                            # For non-scale criteria that are not inverted, scale so min=1, max=10 (higher is better)
+                            if max_val == min_val:
+                                scaled_values = np.ones_like(values) * 10 if min_val != 0 else np.zeros_like(values)
+                            else:
+                                scaled_values = 1 + 9 * (values - min_val) / (max_val - min_val)
+                            scaled_criteria_df[crit] = scaled_values
 
-                    else:
-                        # For non-scale criteria that are not inverted, scale so min=1, max=10 (higher is better)
-                        if max_val == min_val:
-                            scaled_values = np.ones_like(values) * 10 if min_val != 0 else np.zeros_like(values)
-                        else:
-                            scaled_values = 1 + 9 * (values - min_val) / (max_val - min_val)
-                        scaled_criteria_df[crit] = scaled_values
+                    st.write("### Normalised Results (All Criteria Scaled 1-10)")
+                    st.dataframe(scaled_criteria_df.round(2))
 
-                st.write("### Normalised Results (All Criteria Scaled 1-10)")
-                st.dataframe(scaled_criteria_df)
+                    # Create a table with the same structure but scaled values
+                    scaled_results_df = scaled_criteria_df.copy()
 
-                # Create a table with the same structure but scaled values
-                scaled_results_df = scaled_criteria_df.copy()
-
-                st.write("### Scaled Criteria Table")
-                st.dataframe(scaled_results_df)
+                    st.write("### Scaled Criteria Table")
+                    st.dataframe(scaled_results_df.round(2))
 
     if __name__ == "__main__":
         main()
