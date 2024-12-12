@@ -288,6 +288,7 @@ def main():
         # After editing, `edited_criteria_df` contains the final user inputs
         # Further calculations or displays can be done here as needed.
 
+
         # Only proceed if criteria were selected and edited_criteria_df is defined
         if selected_criteria and 'edited_criteria_df' in locals() and edited_criteria_df is not None and not edited_criteria_df.empty:
             if st.button("Run Model"):
@@ -307,3 +308,39 @@ def main():
                         # Add other_name to inversion criteria
                         inversion_criteria.append(other_name.strip())
                     else:
+                        # other_scale == "Yes" means higher is better, so treat it as a scale criterion
+                        scale_criteria.add(other_name.strip())
+
+                # Now scale each criterion
+                for crit in selected_criteria:
+                    values = scaled_criteria_df[crit].values.astype(float)
+                    min_val = np.min(values)
+                    max_val = np.max(values)
+
+                    if crit in scale_criteria:
+                        # Already 1-10 scale where higher is better. Just ensure values are valid.
+                        pass
+
+                    elif crit in inversion_criteria:
+                        # Invert scale: lower value -> 10, higher value -> 1
+                        if max_val == min_val:
+                            scaled_values = np.ones_like(values) * 10 if min_val != 0 else np.zeros_like(values)
+                        else:
+                            scaled_values = 10 - 9 * (values - min_val) / (max_val - min_val)
+                        scaled_criteria_df[crit] = scaled_values
+
+                    else:
+                        # For non-scale criteria that are not inverted, scale so min=1, max=10 (higher is better)
+                        if max_val == min_val:
+                            scaled_values = np.ones_like(values) * 10 if min_val != 0 else np.zeros_like(values)
+                        else:
+                            scaled_values = 1 + 9 * (values - min_val) / (max_val - min_val)
+                        scaled_criteria_df[crit] = scaled_values
+
+                st.write("### Normalised Results (All Criteria Scaled 1-10)")
+                st.dataframe(scaled_criteria_df)
+        else:
+            st.write("No criteria selected or no data available to scale.")
+
+if __name__ == "__main__":
+    main()
