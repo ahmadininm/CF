@@ -14,12 +14,12 @@ default_items = [
 
 # Emission Factors (hidden from the user) - keys updated to match item names
 emission_factors = {
-    "Gas (kWh/day)": 0.182928926,         # kg CO₂e/kWh
-    "Electricity (kWh/day)": 0.207074289, # kg CO₂e/kWh
-    "Nitrogen (m³/day)": 0.090638487,     # kg CO₂e/m³
-    "Hydrogen (m³/day)": 1.07856,         # kg CO₂e/m³
-    "Argon (m³/day)": 6.342950515,        # kg CO₂e/m³
-    "Helium (m³/day)": 0.660501982        # kg CO₂e/m³
+    "Gas (kWh/day)": 0.182928926,
+    "Electricity (kWh/day)": 0.207074289,
+    "Nitrogen (m³/day)": 0.090638487,
+    "Hydrogen (m³/day)": 1.07856,
+    "Argon (m³/day)": 6.342950515,
+    "Helium (m³/day)": 0.660501982
 }
 
 # Main Title and Description
@@ -130,7 +130,7 @@ for col in edited_scenario_df.columns[1:]:
     co2_saving_percent = (co2_saving_kg / total_annual_bau * 100) if total_annual_bau != 0 else 0
 
     results.append({
-        "Scenario": col.replace(" (%)",""),  # Remove " (%)" from the scenario name
+        "Scenario": col.replace(" (%)",""),
         "Total Daily Emissions (kg CO₂e)": scenario_daily_emissions,
         "Total Annual Emissions (kg CO₂e)": scenario_annual_emissions,
         "CO₂ Saving (kg CO₂e/year)": co2_saving_kg,
@@ -146,7 +146,6 @@ st.dataframe(results_df)
 st.subheader("CO₂ Savings Compared to BAU (%)")
 st.bar_chart(results_df.set_index("Scenario")["CO₂ Saving (%)"], use_container_width=True)
 
-# Option to download scenario results as CSV
 st.download_button(
     label="Download Scenario Results as CSV",
     data=results_df.to_csv(index=False),
@@ -206,21 +205,24 @@ if "prev_selected_criteria" not in st.session_state:
 if "criteria_data" not in st.session_state:
     st.session_state["criteria_data"] = pd.DataFrame()
 
+# Only rebuild or update criteria_data if the set of criteria changes
 if selected_criteria:
     if set(selected_criteria) != set(st.session_state["prev_selected_criteria"]):
         criteria_df = st.session_state["criteria_data"].copy()
         if criteria_df.empty or list(criteria_df["Scenario"]) != scenario_names:
             criteria_df = pd.DataFrame({"Scenario": scenario_names})
 
+        # Add missing columns
         for c in selected_criteria:
             if c not in criteria_df.columns and c != "Scenario":
                 criteria_df[c] = 0
 
+        # Remove columns not in selected_criteria
         for c in list(criteria_df.columns):
             if c != "Scenario" and c not in selected_criteria:
                 criteria_df.drop(columns=c, inplace=True)
 
-        st.session_state["criteria_data"] = criteria_df.copy()
+        st.session_state["criteria_data"] = criteria_df
         st.session_state["prev_selected_criteria"] = selected_criteria.copy()
     else:
         criteria_df = st.session_state["criteria_data"].copy()
@@ -248,19 +250,26 @@ if selected_criteria:
             column_config[crit] = st.column_config.NumberColumn(label=crit)
 
     try:
-        edited_criteria_df = st.data_editor(criteria_df, use_container_width=True, column_config=column_config, key="criteria_editor")
+        edited_criteria_df = st.data_editor(
+            criteria_df, 
+            use_container_width=True, 
+            column_config=column_config, 
+            key="criteria_editor"
+        )
     except AttributeError:
         edited_criteria_df = st.experimental_data_editor(criteria_df, use_container_width=True)
 
-    st.session_state["criteria_data"] = edited_criteria_df.copy()
+    # Update criteria data after editing
+    st.session_state["criteria_data"] = edited_criteria_df
 else:
+    # If no criteria selected, keep criteria_data as empty
     st.session_state["criteria_data"] = pd.DataFrame()
     st.session_state["prev_selected_criteria"] = []
 
 
-# ADD A BUTTON TO NORMALIZE DATA INSTEAD OF DOING IT AUTOMATICALLY
+# The button now says "Run the model" instead of "Normalize Data"
 if selected_criteria and not edited_criteria_df.empty:
-    if st.button("Normalize Data"):
+    if st.button("Run the model"):
         scaled_criteria_df = edited_criteria_df.copy()
 
         inversion_criteria = []
@@ -269,26 +278,32 @@ if selected_criteria and not edited_criteria_df.empty:
         if "Initial investment (£)" in selected_criteria:
             inversion_criteria.append("Initial investment (£)")
 
+        # Apply other criterion scale logic
         if other_name.strip():
             if other_scale == "No":
+                # Lower = better
                 inversion_criteria.append(other_name.strip())
             else:
                 scale_criteria.add(other_name.strip())
 
+        # Normalize values
         for crit in selected_criteria:
             values = scaled_criteria_df[crit].values.astype(float)
             min_val = np.min(values)
             max_val = np.max(values)
 
             if crit in scale_criteria:
+                # Already 1-10, higher better, do nothing
                 pass
             elif crit in inversion_criteria:
+                # Invert scale: lower -> 10, higher -> 1
                 if max_val == min_val:
                     scaled_values = np.ones_like(values) * 10
                 else:
                     scaled_values = 10 - 9 * (values - min_val) / (max_val - min_val)
                 scaled_criteria_df[crit] = scaled_values
             else:
+                # Scale min=1, max=10 (higher better)
                 if max_val == min_val:
                     scaled_values = np.ones_like(values) * 10
                 else:
@@ -297,5 +312,25 @@ if selected_criteria and not edited_criteria_df.empty:
 
         st.write("### Normalised Results (All Criteria Scaled 1-10)")
         st.dataframe(scaled_criteria_df)
+
+        # Create a summary table: sum each scenario's criteria
+        # "Scenario" column identifies scenario
+        # Criteria columns are all others
+        # Sum across criteria for each scenario (each row is a scenario)
+        sum_df = scaled_criteria_df.copy()
+        # Calculate total score by summing all criteria columns except "Scenario"
+        sum_df["Total Score"] = sum_df.drop(columns=["Scenario"]).sum(axis=1)
+        # Rank scenarios by total score (higher is better), rank 1 = best
+        sum_df["Rank"] = sum_df["Total Score"].rank(method="dense", ascending=False).astype(int)
+
+        st.write("### Total Scores and Ranking")
+        # Apply a heatmap style based on Total Score
+        styled_sum_df = sum_df.style.background_gradient(
+            cmap='RdYlGn', 
+            subset=["Total Score"], 
+            low=0, high=0
+        )
+
+        st.dataframe(styled_sum_df)
 else:
     st.write("No criteria selected or no data available to scale.")
