@@ -307,4 +307,3 @@ def main():
                         # Add other_name to inversion criteria
                         inversion_criteria.append(other_name.strip())
                     else:
-                        # other
