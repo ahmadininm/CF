@@ -24,6 +24,21 @@ def main():
         st.error("OpenAI API key not found. Please set it in the Streamlit Secrets.")
         st.stop()
 
+
+
+        # Test OpenAI API key
+    try:
+        response = openai.Completion.create(
+            engine="text-davinci-003",
+            prompt="This is a test to verify the OpenAI API key.",
+            max_tokens=5
+        )
+        st.success("OpenAI API key is working!")
+    except openai.error.OpenAIError as e:
+        st.error(f"Error with OpenAI API: {e}")
+        st.stop()
+
+    
     # ----------------------- BAU Inputs -----------------------
 
     st.subheader("Enter Daily Usage for Business As Usual (BAU)")
