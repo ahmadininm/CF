@@ -1,6 +1,6 @@
 import sys
 import subprocess
-import pkg_resources
+
 
 # List of required packages
 required = {'openai'}
