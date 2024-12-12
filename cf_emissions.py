@@ -1,5 +1,6 @@
 import pandas as pd
 import streamlit as st
+import numpy as np
 
 # Default materials and energy (units changed to use m³/day)
 default_items = [
@@ -88,18 +89,30 @@ st.bar_chart(bau_data.set_index("Item")["Daily Emissions (kg CO₂e)"], use_cont
 st.subheader("Scenario Planning (Editable Table)")
 num_scenarios = st.number_input("How many scenarios do you want to add?", min_value=1, step=1, value=1)
 
-# Create a DataFrame with one column per scenario
-scenario_columns = ["Item"] + [f"Scenario {i+1} (%)" for i in range(num_scenarios)]
-scenario_data = [[item] + [100.0]*num_scenarios for item in bau_data["Item"]]
-scenario_df = pd.DataFrame(scenario_data, columns=scenario_columns)
+# Use session_state to remember scenario_df
+if "scenario_data" not in st.session_state:
+    st.session_state["scenario_data"] = pd.DataFrame()
+
+# If number of scenarios changed, recreate scenario_df
+if st.session_state.get("prev_num_scenarios", 1) != num_scenarios or st.session_state["scenario_data"].empty:
+    scenario_columns = ["Item"] + [f"Scenario {i+1} (%)" for i in range(num_scenarios)]
+    scenario_data = [[item] + [100.0]*num_scenarios for item in bau_data["Item"]]
+    scenario_df = pd.DataFrame(scenario_data, columns=scenario_columns)
+    st.session_state["scenario_data"] = scenario_df
+else:
+    scenario_df = st.session_state["scenario_data"]
 
 st.write("Please adjust the percentages for each scenario. Double-click a cell to edit the value.")
 st.write("The percentage represents usage relative to BAU. For example, 90% means the item is at 90% of its BAU usage, thereby achieving a 10% reduction.")
 
 try:
-    edited_scenario_df = st.data_editor(scenario_df, use_container_width=True)
+    edited_scenario_df = st.data_editor(scenario_df, use_container_width=True, key="scenario_editor")
 except AttributeError:
     edited_scenario_df = st.experimental_data_editor(scenario_df, use_container_width=True)
+
+# Update the scenario_data in session_state
+st.session_state["scenario_data"] = edited_scenario_df.copy()
+st.session_state["prev_num_scenarios"] = num_scenarios
 
 # Convert columns (except Item) to numeric
 for col in edited_scenario_df.columns[1:]:
@@ -191,34 +204,31 @@ if "Other" in selected_criteria:
 for crit in selected_criteria:
     st.markdown(f"**{crit}:** {criteria_options[crit]}", unsafe_allow_html=True)
 
-# Handle saving and restoring criteria data to avoid reset when adding new criteria
+# Store criteria data in session_state to avoid resets
 if "criteria_data" not in st.session_state:
     st.session_state["criteria_data"] = pd.DataFrame()
 
-previous_criteria = st.session_state.get("previous_criteria", [])
-
+# Only create or update criteria_df if criteria are selected
 if selected_criteria:
     scenario_names = results_df["Scenario"].tolist()
 
-    # Start with either existing session data or new data
-    if not st.session_state["criteria_data"].empty:
-        criteria_df = st.session_state["criteria_data"].copy()
-    else:
+    # Start with existing session data if available, else create new
+    if st.session_state["criteria_data"].empty:
         criteria_df = pd.DataFrame(columns=["Scenario"] + selected_criteria)
         criteria_df["Scenario"] = scenario_names
         for c in selected_criteria:
             if c not in criteria_df.columns:
                 criteria_df[c] = 0
-
-    # If new criteria are added that weren't there before, add them as columns with 0
-    for c in selected_criteria:
-        if c not in criteria_df.columns:
-            criteria_df[c] = 0
-
-    # If criteria were removed, drop those columns
-    for c in criteria_df.columns:
-        if c != "Scenario" and c not in selected_criteria:
-            criteria_df.drop(columns=c, inplace=True)
+    else:
+        criteria_df = st.session_state["criteria_data"].copy()
+        # Add new criteria if selected after the fact
+        for c in selected_criteria:
+            if c not in criteria_df.columns and c != "Scenario":
+                criteria_df[c] = 0
+        # Remove criteria that were unselected
+        for c in criteria_df.columns:
+            if c != "Scenario" and c not in selected_criteria:
+                criteria_df.drop(columns=c, inplace=True)
 
     criteria_df.index = range(1, len(criteria_df) + 1)  # Start indexing from 1
 
@@ -232,17 +242,17 @@ if selected_criteria:
         "Priority for our organisation"
     }
 
-    # Also consider the "Other" criterion if added as scale-based (since we said 1-10 scale)
-    if other_name.strip():
+    # Also consider the "Other" criterion if added as scale-based
+    if other_name.strip() and other_name.strip() in selected_criteria and other_scale == "Yes":
         scale_criteria.add(other_name.strip())
 
-    # Create column configs for st.data_editor if available (Streamlit 1.22+)
+    # Create column configs
     column_config = {}
     column_config["Scenario"] = st.column_config.TextColumn("Scenario", disabled=True)
     for crit in selected_criteria:
         if crit in scale_criteria:
-            # Numeric column with 1-10 limits
-            column_config[crit] = st.column_config.NumberColumn(label=crit, min_value=1, max_value=10, step=1)
+            # Numeric column with 1-10 limits (no step to avoid input difficulties)
+            column_config[crit] = st.column_config.NumberColumn(label=crit, min_value=1, max_value=10)
         elif crit in ["Initial investment (£)", "Return on Investment (ROI)(years)"]:
             # Numeric column with no strict limit
             column_config[crit] = st.column_config.NumberColumn(label=crit)
@@ -255,45 +265,35 @@ if selected_criteria:
     except AttributeError:
         edited_criteria_df = st.experimental_data_editor(criteria_df, use_container_width=True)
 
-    # Store the edited data and current criteria selection in session state
+    # Store updated criteria data
     st.session_state["criteria_data"] = edited_criteria_df.copy()
-    st.session_state["previous_criteria"] = selected_criteria
 else:
     st.session_state["criteria_data"] = pd.DataFrame()
 
-import numpy as np
-
-# Only proceed if criteria were selected and edited_criteria_df is defined
+# Scaling logic
 if selected_criteria and 'edited_criteria_df' in locals() and edited_criteria_df is not None and not edited_criteria_df.empty:
-    # Create a copy for scaled results
     scaled_criteria_df = edited_criteria_df.copy()
 
-    # Define which criteria need inversion (lower is better)
     inversion_criteria = []
     if "Return on Investment (ROI)(years)" in selected_criteria:
         inversion_criteria.append("Return on Investment (ROI)(years)")
     if "Initial investment (£)" in selected_criteria:
         inversion_criteria.append("Initial investment (£)")
 
-    # Handle the 'Other' criterion if applicable
     if 'other_name' in locals() and other_name.strip():
         if other_scale == "No":
-            # Add other_name to inversion criteria
             inversion_criteria.append(other_name.strip())
         else:
-            # other_scale == "Yes" means higher is better, so treat it as a scale criterion
             scale_criteria.add(other_name.strip())
 
-    # Now scale each criterion
     for crit in selected_criteria:
         values = scaled_criteria_df[crit].values.astype(float)
         min_val = np.min(values)
         max_val = np.max(values)
 
         if crit in scale_criteria:
-            # Already 1-10 scale where higher is better. Just ensure values are valid.
+            # Already 1-10 scale, do nothing
             pass
-
         elif crit in inversion_criteria:
             # Invert scale: lower value -> 10, higher value -> 1
             if max_val == min_val:
@@ -301,9 +301,8 @@ if selected_criteria and 'edited_criteria_df' in locals() and edited_criteria_df
             else:
                 scaled_values = 10 - 9 * (values - min_val) / (max_val - min_val)
             scaled_criteria_df[crit] = scaled_values
-
         else:
-            # For non-scale criteria that are not inverted, scale so min=1, max=10 (higher is better)
+            # Scale min to 1, max to 10 (higher is better)
             if max_val == min_val:
                 scaled_values = np.ones_like(values) * 10
             else:
