@@ -3,28 +3,27 @@ import streamlit as st
 import numpy as np
 import openai
 import os
+import json
 
 def main():
     # Set page configuration
     st.set_page_config(page_title="Sustainability Decision Assistant", layout="wide")
 
-    # Initialize OpenAI API key from environment variable or Streamlit secrets
-    if "openai_api_key" not in st.session_state:
-        st.session_state["openai_api_key"] = st.text_input(
-            "Enter your OpenAI API Key:",
-            type="password",
-            help="You can obtain an API key from https://platform.openai.com/account/api-keys",
-        )
-    
-    openai_api_key = st.session_state.get("openai_api_key")
+    # Main Title and Description
+    st.title("Sustainability Decision Assistant")
+    st.write("*A tool to prioritize scenarios for carbon savings and resource efficiency, enabling data-driven sustainable decisions.*")
 
-    if not openai_api_key:
-        st.warning("Please enter your OpenAI API key to proceed.")
-        st.stop()
-    
-    openai.api_key = openai_api_key
+    # ----------------------- OpenAI API Key Setup -----------------------
 
-    # Default materials and energy (units changed to use m³/day)
+    # Initialize OpenAI API key
+    # Replace '12345' with your actual OpenAI API key securely
+    # For security reasons, it's recommended to use Streamlit's secrets management
+    openai.api_key = "12345"  # <-- Replace '12345' with your actual API key
+
+    # ----------------------- BAU Inputs -----------------------
+
+    st.subheader("Enter Daily Usage for Business As Usual (BAU)")
+
     default_items = [
         "Gas (kWh/day)", 
         "Electricity (kWh/day)", 
@@ -34,7 +33,6 @@ def main():
         "Helium (m³/day)"
     ]
 
-    # Emission Factors (hidden from the user) - keys updated to match item names
     emission_factors = {
         "Gas (kWh/day)": 0.182928926,         # kg CO₂e/kWh
         "Electricity (kWh/day)": 0.207074289, # kg CO₂e/kWh
@@ -44,12 +42,6 @@ def main():
         "Helium (m³/day)": 0.660501982        # kg CO₂e/m³
     }
 
-    # Main Title and Description
-    st.title("Sustainability Decision Assistant")
-    st.write("*A tool to prioritise scenarios for carbon savings and resource efficiency, enabling data-driven sustainable decisions.*")
-
-    # Input BAU values
-    st.subheader("Enter Daily Usage for Business As Usual (BAU)")
     bau_data = pd.DataFrame({
         "Item": default_items,
         "Daily Usage (Units)": [0.0] * len(default_items)
@@ -118,7 +110,8 @@ def main():
     # Visualize BAU emissions
     st.bar_chart(bau_data.set_index("Item")["Daily Emissions (kg CO₂e)"], use_container_width=True)
 
-    # Scenario Planning
+    # ----------------------- Scenario Planning -----------------------
+
     st.subheader("Scenario Planning (Editable Table)")
     num_scenarios = st.number_input(
         "How many scenarios do you want to add?",
@@ -199,10 +192,11 @@ def main():
         mime="text/csv"
     )
 
-    # Ask about additional criteria
+    # ----------------------- Additional Criteria -----------------------
+
     st.write("Apart from the environmental impact (e.g., CO₂ saved) calculated above, which of the following criteria are also important to your organisation? Please select all that apply and then assign values for each scenario.")
 
-    # Criteria options with brief, colour-coded descriptions for the 1-10 scale criteria
+    # Criteria options with brief, color-coded descriptions for the 1-10 scale criteria
     criteria_options = {
         "Technical Feasibility": "<span style='color:red;'>1-4: low feasibility</span>, <span style='color:orange;'>5-6: moderate</span>, <span style='color:green;'>7-10: high feasibility</span>",
         "Supplier Reliability and Technology Readiness": "<span style='color:red;'>1-4: unreliable/immature</span>, <span style='color:orange;'>5-6: mostly reliable</span>, <span style='color:green;'>7-10: reliable/mature</span>",
@@ -285,11 +279,12 @@ def main():
         except AttributeError:
             edited_criteria_df = st.experimental_data_editor(criteria_df, use_container_width=True, key="criteria_editor")
 
+        # ----------------------- AI-Based Scoring -----------------------
+
         # Assign default scores based on scenario descriptions using AI analysis
         if 'edited_scenario_desc_df' in st.session_state:
             scenario_desc = st.session_state['edited_scenario_desc_df']
             if not scenario_desc.empty:
-                # Iterate over each scenario and assign scores using OpenAI's GPT-4
                 for idx, row in scenario_desc.iterrows():
                     description = row["Description"].strip()
                     scenario = row["Scenario"]
@@ -322,7 +317,7 @@ You are an expert sustainability analyst. Based on the following scenario descri
                         ai_output = response.choices[0].text.strip()
                         # Attempt to parse the JSON output
                         try:
-                            scores = eval(ai_output)  # Caution: Using eval can be risky. Ensure input is trusted.
+                            scores = json.loads(ai_output)
                             if isinstance(scores, dict):
                                 for crit in selected_criteria:
                                     if crit in scores:
@@ -333,22 +328,28 @@ You are an expert sustainability analyst. Based on the following scenario descri
                                         else:
                                             criteria_df.loc[criteria_df["Scenario"] == scenario, crit] = 5  # Neutral score
                                     else:
-                                        criteria_df.loc[criteria_df["Scenario"] == scenario, crit] = 5  # Neutral score
+                                        # If criterion not in scores, assign neutral
+                                        criteria_df.loc[criteria_df["Scenario"] == scenario, crit] = 5
                             else:
                                 # If not a dict, assign neutral scores
-                                criteria_df.loc[criteria_df["Scenario"] == scenario, selected_criteria] = 5
-                        except:
-                            # If parsing fails, assign neutral scores
-                            criteria_df.loc[criteria_df["Scenario"] == scenario, selected_criteria] = 5
-                    except Exception as e:
-                        st.error(f"Error with AI model: {e}")
-                        criteria_df.loc[criteria_df["Scenario"] == scenario, selected_criteria] = 5
+                                for crit in selected_criteria:
+                                    criteria_df.loc[criteria_df["Scenario"] == scenario, crit] = 5
+                        except json.JSONDecodeError:
+                            # If JSON parsing fails, assign neutral scores
+                            for crit in selected_criteria:
+                                criteria_df.loc[criteria_df["Scenario"] == scenario, crit] = 5
+                    except openai.error.OpenAIError as e:
+                        st.error(f"Error with OpenAI API: {e}")
+                        for crit in selected_criteria:
+                            criteria_df.loc[criteria_df["Scenario"] == scenario, crit] = 5
 
                 # Update the criteria_df with assigned scores
                 try:
                     edited_criteria_df = st.data_editor(criteria_df, use_container_width=True, key="criteria_editor_with_scores")
                 except AttributeError:
                     edited_criteria_df = st.experimental_data_editor(criteria_df, use_container_width=True, key="criteria_editor_with_scores")
+
+        # ----------------------- Run Model -----------------------
 
         # Only proceed if criteria were selected and edited_criteria_df is defined
         if selected_criteria and 'edited_criteria_df' in locals() and edited_criteria_df is not None and not edited_criteria_df.empty:
@@ -404,7 +405,7 @@ You are an expert sustainability analyst. Based on the following scenario descri
                                 scaled_values = 1 + 9 * (values - min_val) / (max_val - min_val)
                             scaled_criteria_df[crit] = scaled_values
 
-                    st.write("### Normalised Results (All Criteria Scaled 1-10)")
+                    st.write("### Normalized Results (All Criteria Scaled 1-10)")
                     st.dataframe(scaled_criteria_df.round(2))
 
                     # Create a table with the same structure but scaled values
