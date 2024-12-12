@@ -296,14 +296,4 @@ def main():
 
                 # Define which criteria need inversion (lower is better)
                 inversion_criteria = []
-                if "Return on Investment (ROI)(years)" in selected_criteria:
-                    inversion_criteria.append("Return on Investment (ROI)(years)")
-                if "Initial investment (£)" in selected_criteria:
-                    inversion_criteria.append("Initial investment (£)")
-
-                # Handle the 'Other' criterion if applicable
-                if other_name.strip():
-                    if other_scale == "No":
-                        # Add other_name to inversion criteria
-                        inversion_criteria.append(other_name.strip())
-                    else
+                if "Return on Investment (ROI)(years)" in selected_criteria
