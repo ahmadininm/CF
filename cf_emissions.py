@@ -324,26 +324,26 @@ for crit in selected_criteria:
         # Already 1-10 scale where higher is better. Just ensure values are valid.
         pass
 
-    elif crit in inversion_criteria:
-        # Invert scale: lower value -> 10, higher value -> 1
-        if max_val == min_val:
-            scaled_values = np.ones_like(values) * 10 if min_val != 0 else np.zeros_like(values)
-        else:
-            scaled_values = 10 - 9 * (values - min_val) / (max_val - min_val)
-        scaled_criteria_df[crit] = scaled_values
+                    elif crit in inversion_criteria:
+                        # Invert scale: lower value -> 10, higher value -> 1
+                        if max_val == min_val:
+                            scaled_values = np.ones_like(values) * 10 if min_val != 0 else np.zeros_like(values)
+                        else:
+                            scaled_values = 10 - 9 * (values - min_val) / (max_val - min_val)
+                        scaled_criteria_df[crit] = scaled_values
 
-    else:
-        # For non-scale criteria that are not inverted, scale so min=1, max=10 (higher is better)
-        if max_val == min_val:
-            scaled_values = np.ones_like(values) * 10 if min_val != 0 else np.zeros_like(values)
-        else:
-            scaled_values = 1 + 9 * (values - min_val) / (max_val - min_val)
-        scaled_criteria_df[crit] = scaled_values
+                    else:
+                        # For non-scale criteria that are not inverted, scale so min=1, max=10 (higher is better)
+                        if max_val == min_val:
+                            scaled_values = np.ones_like(values) * 10 if min_val != 0 else np.zeros_like(values)
+                        else:
+                            scaled_values = 1 + 9 * (values - min_val) / (max_val - min_val)
+                        scaled_criteria_df[crit] = scaled_values
 
-st.write("### Normalised Results (All Criteria Scaled 1-10)")
-st.dataframe(scaled_criteria_df)
-else:
-    st.write("No criteria selected or no data available to scale.")
+                st.write("### Normalised Results (All Criteria Scaled 1-10)")
+                st.dataframe(scaled_criteria_df)
+        else:
+            st.write("No criteria selected or no data available to scale.")
 
 if __name__ == "__main__":
     main()
