@@ -2,7 +2,6 @@ import pandas as pd
 import streamlit as st
 import numpy as np
 import openai
-import os
 import json
 
 def main():
@@ -15,10 +14,12 @@ def main():
 
     # ----------------------- OpenAI API Key Setup -----------------------
 
-    # Initialize OpenAI API key
-    # Replace '12345' with your actual OpenAI API key securely
-    # For security reasons, it's recommended to use Streamlit's secrets management
-    openai.api_key = "12345"  # <-- Replace '12345' with your actual API key
+    # Retrieve OpenAI API key from Streamlit Secrets
+    try:
+        openai.api_key = st.secrets["OPENAI_API_KEY"]
+    except KeyError:
+        st.error("OpenAI API key not found. Please set it in the Streamlit Secrets.")
+        st.stop()
 
     # ----------------------- BAU Inputs -----------------------
 
@@ -349,70 +350,70 @@ You are an expert sustainability analyst. Based on the following scenario descri
                 except AttributeError:
                     edited_criteria_df = st.experimental_data_editor(criteria_df, use_container_width=True, key="criteria_editor_with_scores")
 
-        # ----------------------- Run Model -----------------------
+    # ----------------------- Run Model -----------------------
 
-        # Only proceed if criteria were selected and edited_criteria_df is defined
-        if selected_criteria and 'edited_criteria_df' in locals() and edited_criteria_df is not None and not edited_criteria_df.empty:
-            if st.button("Run Model"):
-                # Check if all required values are filled
-                if edited_criteria_df.isnull().values.any():
-                    st.error("Please ensure all criteria values are filled.")
-                else:
-                    # Create a copy for scaled results
-                    scaled_criteria_df = edited_criteria_df.copy()
+    # Only proceed if criteria were selected and edited_criteria_df is defined
+    if selected_criteria and 'edited_criteria_df' in locals() and edited_criteria_df is not None and not edited_criteria_df.empty:
+        if st.button("Run Model"):
+            # Check if all required values are filled
+            if edited_criteria_df.isnull().values.any():
+                st.error("Please ensure all criteria values are filled.")
+            else:
+                # Create a copy for scaled results
+                scaled_criteria_df = edited_criteria_df.copy()
 
-                    # Define which criteria need inversion (lower is better)
-                    inversion_criteria = []
-                    if "Return on Investment (ROI)(years)" in selected_criteria:
-                        inversion_criteria.append("Return on Investment (ROI)(years)")
-                    if "Initial investment (£)" in selected_criteria:
-                        inversion_criteria.append("Initial investment (£)")
+                # Define which criteria need inversion (lower is better)
+                inversion_criteria = []
+                if "Return on Investment (ROI)(years)" in selected_criteria:
+                    inversion_criteria.append("Return on Investment (ROI)(years)")
+                if "Initial investment (£)" in selected_criteria:
+                    inversion_criteria.append("Initial investment (£)")
 
-                    # Handle the 'Other' criterion if applicable
-                    if "other_name_input" in st.session_state and st.session_state.get("other_scale_radio") == "No" and st.session_state.get("other_name_input", "").strip():
-                        other_name_str = st.session_state["other_name_input"].strip()
-                        inversion_criteria.append(other_name_str)
+                # Handle the 'Other' criterion if applicable
+                if "other_name_input" in st.session_state and st.session_state.get("other_scale_radio") == "No" and st.session_state.get("other_name_input", "").strip():
+                    other_name_str = st.session_state["other_name_input"].strip()
+                    inversion_criteria.append(other_name_str)
 
-                    # Now scale each criterion
-                    for crit in selected_criteria:
-                        try:
-                            values = scaled_criteria_df[crit].astype(float).values
-                        except:
-                            scaled_criteria_df[crit] = 5  # Assign neutral score if conversion fails
-                            values = scaled_criteria_df[crit].astype(float).values
+                # Now scale each criterion
+                for crit in selected_criteria:
+                    try:
+                        values = scaled_criteria_df[crit].astype(float).values
+                    except:
+                        scaled_criteria_df[crit] = 5  # Assign neutral score if conversion fails
+                        values = scaled_criteria_df[crit].astype(float).values
 
-                        min_val = np.min(values)
-                        max_val = np.max(values)
+                    min_val = np.min(values)
+                    max_val = np.max(values)
 
-                        if crit in inversion_criteria:
-                            # Invert scale: lower value -> 10, higher value -> 1
-                            if max_val == min_val:
-                                scaled_values = np.ones_like(values) * 10 if min_val != 0 else np.zeros_like(values)
-                            else:
-                                scaled_values = 10 - 9 * (values - min_val) / (max_val - min_val)
-                            scaled_criteria_df[crit] = scaled_values
-
-                        elif crit in scale_criteria:
-                            # Already 1-10 scale where higher is better. Just ensure values are valid.
-                            # Optionally, you can normalize or keep as is.
-                            pass
-
+                    if crit in inversion_criteria:
+                        # Invert scale: lower value -> 10, higher value -> 1
+                        if max_val == min_val:
+                            scaled_values = np.ones_like(values) * 10 if min_val != 0 else np.zeros_like(values)
                         else:
-                            # For non-scale criteria that are not inverted, scale so min=1, max=10 (higher is better)
-                            if max_val == min_val:
-                                scaled_values = np.ones_like(values) * 10 if min_val != 0 else np.zeros_like(values)
-                            else:
-                                scaled_values = 1 + 9 * (values - min_val) / (max_val - min_val)
-                            scaled_criteria_df[crit] = scaled_values
+                            scaled_values = 10 - 9 * (values - min_val) / (max_val - min_val)
+                        scaled_criteria_df[crit] = scaled_values
 
-                    st.write("### Normalized Results (All Criteria Scaled 1-10)")
-                    st.dataframe(scaled_criteria_df.round(2))
+                    elif crit in scale_criteria:
+                        # Already 1-10 scale where higher is better. Just ensure values are valid.
+                        # Optionally, you can normalize or keep as is.
+                        pass
 
-                    # Create a table with the same structure but scaled values
-                    scaled_results_df = scaled_criteria_df.copy()
+                    else:
+                        # For non-scale criteria that are not inverted, scale so min=1, max=10 (higher is better)
+                        if max_val == min_val:
+                            scaled_values = np.ones_like(values) * 10 if min_val != 0 else np.zeros_like(values)
+                        else:
+                            scaled_values = 1 + 9 * (values - min_val) / (max_val - min_val)
+                        scaled_criteria_df[crit] = scaled_values
 
-                    st.write("### Scaled Criteria Table")
-                    st.dataframe(scaled_results_df.round(2))
+                st.write("### Normalized Results (All Criteria Scaled 1-10)")
+                st.dataframe(scaled_criteria_df.round(2))
 
-    if __name__ == "__main__":
-        main()
+                # Create a table with the same structure but scaled values
+                scaled_results_df = scaled_criteria_df.copy()
+
+                st.write("### Scaled Criteria Table")
+                st.dataframe(scaled_results_df.round(2))
+
+if __name__ == "__main__":
+    main()
