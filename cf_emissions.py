@@ -1,4 +1,3 @@
-
 import pandas as pd
 import streamlit as st
 import numpy as np
@@ -296,7 +295,7 @@ def main():
 
                     # Prepare the prompt for the AI model
                     prompt = f"""
-You are an expert sustainability analyst. Based on the following scenario description, assign a score between 1 and 10 for each of the selected sustainability criteria. Provide only the scores in JSON format where the keys are the criteria names and the values are the scores.
+You are an expert sustainability analyst. Based on the following scenario description, assign a score between 1 and 10 for each of the selected sustainability criteria. Provide only the scores in JSON format.
 
 ### Scenario Description:
 {description}
@@ -340,10 +339,12 @@ You are an expert sustainability analyst. Based on the following scenario descri
                             # If JSON parsing fails, assign neutral scores
                             for crit in selected_criteria:
                                 criteria_df.loc[criteria_df["Scenario"] == scenario, crit] = 5
-                    except openai.error.OpenAIError as e:
+                    except openai.error.OpenAIAPIError as e:
                         st.error(f"Error with OpenAI API: {e}")
                         for crit in selected_criteria:
                             criteria_df.loc[criteria_df["Scenario"] == scenario, crit] = 5
+
+
 
                 # Update the criteria_df with assigned scores
                 try:
