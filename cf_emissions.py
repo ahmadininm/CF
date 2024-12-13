@@ -285,66 +285,64 @@ def main():
 
             st.write("Please assign values for each selected criterion to each scenario. Double-click a cell to edit. For (1-10) criteria, only enter values between 1 and 10.")
 
+            # Editable table for criteria values with input constraints
+            try:
+                edited_criteria_df = st.data_editor(
+                    criteria_df,
+                    use_container_width=True,
+                    key="criteria_editor",
+                    num_rows="dynamic",
+                    disabled=False,
+                    columns=[
+                        {"id": "Scenario", "name": "Scenario", "editable": False},
+                    ] + [
+                        {
+                            "id": c, 
+                            "name": c, 
+                            "type": "number", 
+                            "format": {"specifier": ".0f"},  # Ensures integer input
+                            "min_value": 1, 
+                            "max_value": 10
+                        } if c in scale_criteria else {"id": c, "name": c, "type": "number"}
+                        for c in selected_criteria
+                    ]
+                )
+            except AttributeError:
+                edited_criteria_df = st.experimental_data_editor(
+                    criteria_df,
+                    use_container_width=True,
+                    key="criteria_editor",
+                    num_rows="dynamic",
+                    disabled=False,
+                    columns=[
+                        {"id": "Scenario", "name": "Scenario", "editable": False},
+                    ] + [
+                        {
+                            "id": c, 
+                            "name": c, 
+                            "type": "number", 
+                            "format": {"specifier": ".0f"},  # Ensures integer input
+                            "min_value": 1, 
+                            "max_value": 10
+                        } if c in scale_criteria else {"id": c, "name": c, "type": "number"}
+                        for c in selected_criteria
+                    ]
+                )
 
-# Editable table for criteria values with input constraints
-try:
-    edited_criteria_df = st.data_editor(
-        criteria_df,
-        use_container_width=True,
-        key="criteria_editor",
-        num_rows="dynamic",
-        disabled=False,
-        columns=[
-            {"id": "Scenario", "name": "Scenario", "editable": False},
-        ] + [
-            {
-                "id": c, 
-                "name": c, 
-                "type": "number", 
-                "format": {"specifier": ".0f"},  # Ensures integer input
-                "min_value": 1, 
-                "max_value": 10
-            } if c in scale_criteria else {"id": c, "name": c, "type": "number"}
-            for c in selected_criteria
-        ]
-    )
-except AttributeError:
-    edited_criteria_df = st.experimental_data_editor(
-        criteria_df,
-        use_container_width=True,
-        key="criteria_editor",
-        num_rows="dynamic",
-        disabled=False,
-        columns=[
-            {"id": "Scenario", "name": "Scenario", "editable": False},
-        ] + [
-            {
-                "id": c, 
-                "name": c, 
-                "type": "number", 
-                "format": {"specifier": ".0f"},  # Ensures integer input
-                "min_value": 1, 
-                "max_value": 10
-            } if c in scale_criteria else {"id": c, "name": c, "type": "number"}
-            for c in selected_criteria
-        ]
-    )
+        # ----------------------- AI-Based Scoring -----------------------
 
+        # Assign default scores based on scenario descriptions using AI analysis
+        scenario_desc = st.session_state.get('edited_scenario_desc_df')
+        if scenario_desc is not None and not scenario_desc.empty:
+            for idx, row in scenario_desc.iterrows():
+                description = row["Description"].strip()
+                scenario = row["Scenario"]
 
-            # ----------------------- AI-Based Scoring -----------------------
+                if description == "":
+                    continue  # Skip empty descriptions
 
-            # Assign default scores based on scenario descriptions using AI analysis
-            scenario_desc = st.session_state.get('edited_scenario_desc_df')
-            if scenario_desc is not None and not scenario_desc.empty:
-                for idx, row in scenario_desc.iterrows():
-                    description = row["Description"].strip()
-                    scenario = row["Scenario"]
-
-                    if description == "":
-                        continue  # Skip empty descriptions
-
-                    # Prepare the prompt for the AI model
-                    prompt = f"""
+                # Prepare the prompt for the AI model
+                prompt = f"""
 You are an expert sustainability analyst. Based on the following scenario description, assign a score between 1 and 10 for each of the selected sustainability criteria. Provide only the scores in JSON format.
 
 ### Scenario Description:
@@ -356,53 +354,53 @@ You are an expert sustainability analyst. Based on the following scenario descri
 ### JSON Output:
 """
 
+                try:
+                    response = openai.Completion.create(
+                        engine="text-davinci-003",
+                        prompt=prompt,
+                        max_tokens=150,
+                        temperature=0.3,
+                        n=1,
+                        stop=None
+                    )
+                    ai_output = response.choices[0].text.strip()
+                    # Attempt to parse the JSON output
                     try:
-                        response = openai.Completion.create(
-                            engine="text-davinci-003",
-                            prompt=prompt,
-                            max_tokens=150,
-                            temperature=0.3,
-                            n=1,
-                            stop=None
-                        )
-                        ai_output = response.choices[0].text.strip()
-                        # Attempt to parse the JSON output
-                        try:
-                            scores = json.loads(ai_output)
-                            if isinstance(scores, dict):
-                                for crit in selected_criteria:
-                                    if crit in scores:
-                                        score = scores[crit]
-                                        # Validate score is between 1 and 10
-                                        if isinstance(score, (int, float)) and 1 <= score <= 10:
-                                            criteria_df.loc[criteria_df["Scenario"] == scenario, crit] = score
-                                        else:
-                                            criteria_df.loc[criteria_df["Scenario"] == scenario, crit] = 5  # Neutral score
+                        scores = json.loads(ai_output)
+                        if isinstance(scores, dict):
+                            for crit in selected_criteria:
+                                if crit in scores:
+                                    score = scores[crit]
+                                    # Validate score is between 1 and 10
+                                    if isinstance(score, (int, float)) and 1 <= score <= 10:
+                                        criteria_df.loc[criteria_df["Scenario"] == scenario, crit] = score
                                     else:
-                                        # If criterion not in scores, assign neutral
-                                        criteria_df.loc[criteria_df["Scenario"] == scenario, crit] = 5
-                            else:
-                                # If not a dict, assign neutral scores
-                                for crit in selected_criteria:
+                                        criteria_df.loc[criteria_df["Scenario"] == scenario, crit] = 5  # Neutral score
+                                else:
+                                    # If criterion not in scores, assign neutral
                                     criteria_df.loc[criteria_df["Scenario"] == scenario, crit] = 5
-                        except json.JSONDecodeError:
-                            # If JSON parsing fails, assign neutral scores
+                        else:
+                            # If not a dict, assign neutral scores
                             for crit in selected_criteria:
                                 criteria_df.loc[criteria_df["Scenario"] == scenario, crit] = 5
-                    except openai.error.OpenAIError as e:
-                        st.error(f"Error with OpenAI API: {e}")
+                    except json.JSONDecodeError:
+                        # If JSON parsing fails, assign neutral scores
                         for crit in selected_criteria:
                             criteria_df.loc[criteria_df["Scenario"] == scenario, crit] = 5
-                    except Exception as e:
-                        st.error(f"An unexpected error occurred: {e}")
-                        for crit in selected_criteria:
-                            criteria_df.loc[criteria_df["Scenario"] == scenario, crit] = 5
+                except openai.error.OpenAIError as e:
+                    st.error(f"Error with OpenAI API: {e}")
+                    for crit in selected_criteria:
+                        criteria_df.loc[criteria_df["Scenario"] == scenario, crit] = 5
+                except Exception as e:
+                    st.error(f"An unexpected error occurred: {e}")
+                    for crit in selected_criteria:
+                        criteria_df.loc[criteria_df["Scenario"] == scenario, crit] = 5
 
-                # Update the criteria_df with assigned scores
-                try:
-                    edited_criteria_df = st.data_editor(criteria_df, use_container_width=True, key="criteria_editor_with_scores")
-                except AttributeError:
-                    edited_criteria_df = st.experimental_data_editor(criteria_df, use_container_width=True, key="criteria_editor_with_scores")
+            # Update the criteria_df with assigned scores
+            try:
+                edited_criteria_df = st.data_editor(criteria_df, use_container_width=True, key="criteria_editor_with_scores")
+            except AttributeError:
+                edited_criteria_df = st.experimental_data_editor(criteria_df, use_container_width=True, key="criteria_editor_with_scores")
 
     # ----------------------- Run Model -----------------------
 
