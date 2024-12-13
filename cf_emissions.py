@@ -304,9 +304,15 @@ You are an expert sustainability consultant. Based on the following description 
             key="scenario_desc_editor",
             num_rows="fixed",
             disabled=False,
-            editable=True
+            column_config={
+                "Scenario": st.column_config.TextColumn(label="Scenario", disabled=True),
+                "Description": st.column_config.TextColumn(label="Description")
+            }
         )
-    except AttributeError:
+    except TypeError as e:
+        st.error(f"Data Editor Error: {e}")
+        st.stop()
+    except AttributeError as e:
         # Fallback for older Streamlit versions
         edited_scenario_desc_df = st.experimental_data_editor(
             st.session_state.scenario_desc_df,
@@ -335,9 +341,14 @@ You are an expert sustainability consultant. Based on the following description 
             key="scenario_percent_editor",
             num_rows="fixed",
             disabled=False,
-            editable=True
+            column_config={
+                "Item": st.column_config.TextColumn(label="Item", disabled=True)
+            }
         )
-    except AttributeError:
+    except TypeError as e:
+        st.error(f"Data Editor Error: {e}")
+        st.stop()
+    except AttributeError as e:
         # Fallback for older Streamlit versions
         edited_scenario_df = st.experimental_data_editor(
             scenario_df,
@@ -538,10 +549,12 @@ You are an expert sustainability consultant. Based on the following description 
                 num_rows="dynamic",
                 disabled=False,
                 column_config=column_config,
-                hide_index=True,
-                editable=True
+                hide_index=True
             )
-        except AttributeError:
+        except TypeError as e:
+            st.error(f"Data Editor Error: {e}")
+            st.stop()
+        except AttributeError as e:
             # Fallback for older Streamlit versions
             edited_criteria_df = st.experimental_data_editor(
                 st.session_state.criteria_df,
