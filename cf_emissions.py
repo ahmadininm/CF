@@ -4,7 +4,11 @@ import numpy as np
 import openai
 import json
 import altair as alt  # For advanced visualizations
-streamlit cache clear
+if st.button("Clear Cache"):
+    st.cache_data.clear()
+    st.cache_resource.clear()
+    st.experimental_rerun()
+
 
 
 # Import OpenAIError correctly for SDK <=0.28
