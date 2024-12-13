@@ -12,12 +12,6 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# Initialize OpenAI API
-try:
-    from openai.error import OpenAIError
-except ImportError:
-    OpenAIError = Exception  # Fallback for older SDK versions
-
 def initialize_session_state():
     """Initialize session state variables if they don't exist."""
     if 'bau_data' not in st.session_state:
@@ -69,11 +63,11 @@ def chat_gpt(prompt):
     """Function to interact with OpenAI's ChatCompletion API."""
     try:
         response = openai.ChatCompletion.create(
-            model="gpt-3.5-turbo",  # Change to "gpt-4" if you have access
+            model="gpt-3.5-turbo",  # or "gpt-4" if accessible
             messages=[{"role": "user", "content": prompt}]
         )
         return response['choices'][0]['message']['content'].strip()
-    except OpenAIError as e:
+    except openai.error.OpenAIError as e:
         logger.error(f"OpenAI API Error: {e}")
         st.error(f"OpenAI API Error: {e}")
         return None
@@ -314,10 +308,23 @@ You are an expert sustainability consultant. Based on the following description 
 
     # Editable table for scenario descriptions
     try:
-        edited_scenario_desc_df = st.data_editor(st.session_state.scenario_desc_df, use_container_width=True, key="scenario_desc_editor", num_rows="fixed")
+        edited_scenario_desc_df = st.data_editor(
+            st.session_state.scenario_desc_df,
+            use_container_width=True,
+            key="scenario_desc_editor",
+            num_rows="fixed",
+            disabled=False,
+            editable=True
+        )
     except AttributeError:
         # Fallback for older Streamlit versions
-        edited_scenario_desc_df = st.experimental_data_editor(st.session_state.scenario_desc_df, use_container_width=True, key="scenario_desc_editor", num_rows="fixed")
+        edited_scenario_desc_df = st.experimental_data_editor(
+            st.session_state.scenario_desc_df,
+            use_container_width=True,
+            key="scenario_desc_editor",
+            num_rows="fixed",
+            disabled=False
+        )
 
     # Save edited scenario descriptions to session state
     st.session_state['scenario_desc_df'] = edited_scenario_desc_df
@@ -332,10 +339,23 @@ You are an expert sustainability consultant. Based on the following description 
 
     # Editable table for scenario percentages
     try:
-        edited_scenario_df = st.data_editor(scenario_df, use_container_width=True, key="scenario_percent_editor", num_rows="fixed")
+        edited_scenario_df = st.data_editor(
+            scenario_df,
+            use_container_width=True,
+            key="scenario_percent_editor",
+            num_rows="fixed",
+            disabled=False,
+            editable=True
+        )
     except AttributeError:
         # Fallback for older Streamlit versions
-        edited_scenario_df = st.experimental_data_editor(scenario_df, use_container_width=True, key="scenario_percent_editor", num_rows="fixed")
+        edited_scenario_df = st.experimental_data_editor(
+            scenario_df,
+            use_container_width=True,
+            key="scenario_percent_editor",
+            num_rows="fixed",
+            disabled=False
+        )
 
     # Update session state with edited scenario percentages
     st.session_state['scenario_percent_df'] = edited_scenario_df
@@ -613,12 +633,23 @@ You are an expert sustainability consultant. Based on the following description 
                 else:
                     scaled_criteria_df['Normalized Score'] = 5  # Assign a neutral score if all scores are equal
 
-                # Calculate CO₂ Savings
-                scaled_criteria_df['CO₂ Saving (kg CO₂e/year)'] = total_annual_bau - (scaled_criteria_df['Total Score'] - scaled_criteria_df['Normalized Score'])
-                scaled_criteria_df['CO₂ Saving (%)'] = (scaled_criteria_df['CO₂ Saving (kg CO₂e/year)'] / total_annual_bau * 100) if total_annual_bau != 0 else 0
+                # Assign colors based on normalized scores
+                def get_color(score):
+                    if score >= 7:
+                        return 'green'
+                    elif score >= 5:
+                        return 'yellow'
+                    else:
+                        return 'red'
+
+                scaled_criteria_df['Color'] = scaled_criteria_df['Normalized Score'].apply(get_color)
 
                 # Rank the scenarios based on Total Score
                 scaled_criteria_df['Rank'] = scaled_criteria_df['Total Score'].rank(method='min', ascending=False).astype(int)
+
+                # Calculate CO₂ Savings
+                scaled_criteria_df['CO₂ Saving (kg CO₂e/year)'] = total_annual_bau - (scaled_criteria_df['Total Score'] - scaled_criteria_df['Normalized Score'])
+                scaled_criteria_df['CO₂ Saving (%)'] = (scaled_criteria_df['CO₂ Saving (kg CO₂e/year)'] / total_annual_bau * 100) if total_annual_bau != 0 else 0
 
                 st.write("### Scenario Results")
                 st.dataframe(scaled_criteria_df.round(2))
@@ -649,5 +680,5 @@ You are an expert sustainability consultant. Based on the following description 
                 st.write("### Ranked Scenarios with Gradient Colors")
                 st.dataframe(styled_display_style)
 
-    if __name__ == "__main__":
-        main()
+if __name__ == "__main__":
+    main()
