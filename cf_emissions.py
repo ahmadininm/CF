@@ -287,9 +287,9 @@ def main():
 
             # Define column configurations
             column_config = {
-                "Scenario": st.column_config.Column(
+                "Scenario": st.column_config.TextColumn(
                     "Scenario",
-                    editable=False
+                    editable=False  # Correct subclass and parameter
                 )
             }
 
@@ -297,8 +297,8 @@ def main():
                 if c in scale_criteria:
                     column_config[c] = st.column_config.NumberColumn(
                         label=c,
-                        format="%.0f",
-                        min_value=1,
+                        format="%.0f",           # Ensures integer input
+                        min_value=1, 
                         max_value=10
                     )
                 else:
@@ -395,9 +395,19 @@ You are an expert sustainability analyst. Based on the following scenario descri
 
             # Update the criteria_df with assigned scores
             try:
-                edited_criteria_df = st.data_editor(criteria_df, use_container_width=True, key="criteria_editor_with_scores", column_config=column_config)
+                edited_criteria_df = st.data_editor(
+                    criteria_df, 
+                    use_container_width=True, 
+                    key="criteria_editor_with_scores", 
+                    column_config=column_config  # Updated parameter
+                )
             except AttributeError:
-                edited_criteria_df = st.experimental_data_editor(criteria_df, use_container_width=True, key="criteria_editor_with_scores", column_config=column_config)
+                edited_criteria_df = st.experimental_data_editor(
+                    criteria_df, 
+                    use_container_width=True, 
+                    key="criteria_editor_with_scores", 
+                    column_config=column_config  # Updated parameter
+                )
 
     # ----------------------- Run Model -----------------------
 
