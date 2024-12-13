@@ -5,10 +5,8 @@ import openai
 import json
 import altair as alt  # For advanced visualizations
 
-
-
-
-# Import OpenAIError correctly for SDK <=0.28
+# Initialize OpenAI API (Ensure you have the latest OpenAI SDK installed)
+# Run: pip install --upgrade openai
 try:
     from openai.error import OpenAIError
 except ImportError:
@@ -57,6 +55,13 @@ def initialize_session_state():
     if 'proposed_scenarios' not in st.session_state:
         st.session_state.proposed_scenarios = []
 
+def clear_cache():
+    """Clear Streamlit cache and rerun the app."""
+    if st.button("Clear Cache"):
+        st.cache_data.clear()
+        st.cache_resource.clear()
+        st.experimental_rerun()
+
 def main():
     # Initialize session state
     initialize_session_state()
@@ -67,6 +72,9 @@ def main():
     # Main Title and Description
     st.title("Sustainability Decision Assistant")
     st.write("*A tool to prioritize scenarios for carbon savings and resource efficiency, enabling data-driven sustainable decisions.*")
+
+    # Add Cache Clearing Button
+    clear_cache()
 
     # Debugging: Display Streamlit and OpenAI package versions
     try:
@@ -148,7 +156,7 @@ def main():
 
     # ----------------------- Fixing the TypeError -----------------------
 
-    # Drop the "Emission Factor" column if it exists to prevent dtype conflicts
+    # Drop the "Emission Factor (kg CO₂e/unit)" column if it exists to prevent dtype conflicts
     if "Emission Factor (kg CO₂e/unit)" in st.session_state.bau_data.columns:
         st.session_state.bau_data = st.session_state.bau_data.drop(columns=["Emission Factor (kg CO₂e/unit)"])
 
@@ -221,13 +229,16 @@ You are an expert sustainability consultant. Based on the following description 
 """
 
             try:
-                response = openai.Completion.create(
-                    engine="text-davinci-003",
-                    prompt=prompt,
+                response = openai.ChatCompletion.create(
+                    model="gpt-4",
+                    messages=[
+                        {"role": "system", "content": "You are an expert sustainability consultant."},
+                        {"role": "user", "content": prompt}
+                    ],
                     max_tokens=300,
                     temperature=0.7,
                 )
-                ai_output = response.choices[0].text.strip()
+                ai_output = response['choices'][0]['message']['content'].strip()
 
                 # Parse the AI output into a list of scenarios
                 scenarios = []
@@ -501,11 +512,8 @@ You are an expert sustainability consultant. Based on the following description 
         # Initialize or update criteria_df in session state
         if st.session_state.criteria_df.empty:
             criteria_df = pd.DataFrame(columns=["Scenario"] + selected_criteria)
-            if 'results_df' in locals() and not results_df.empty:
-                criteria_df["Scenario"] = results_df["Scenario"].tolist()
-            else:
-                # Assign scenario names from scenario_desc_df
-                criteria_df["Scenario"] = st.session_state.scenario_desc_df["Scenario"].tolist()
+            # Assign scenario names from scenario_desc_df
+            criteria_df["Scenario"] = st.session_state.scenario_desc_df["Scenario"].tolist()
             for c in selected_criteria:
                 criteria_df[c] = 1
             st.session_state.criteria_df = criteria_df
@@ -567,12 +575,6 @@ You are an expert sustainability consultant. Based on the following description 
 
         # Update session state with edited criteria
         st.session_state.criteria_df = edited_criteria_df
-
-    # ----------------------- AI-Based Scoring -----------------------
-
-    # Note: The user requested to "forget about linking the description part into AI for now"
-    # So, we will not perform AI-based scoring based on scenario descriptions.
-    # Instead, focus on normalizing and ranking based on assigned criteria.
 
     # ----------------------- Run Model -----------------------
 
@@ -685,23 +687,14 @@ You are an expert sustainability consultant. Based on the following description 
                 styled_display = styled_display.sort_values('Rank')
 
                 # Apply color formatting based on 'Normalized Score' using Styler.map
-                def color_cell(score):
-                    if score >= 7:
-                        return 'background-color: green'
-                    elif score >= 5:
-                        return 'background-color: yellow'
-                    else:
-                        return 'background-color: red'
-
-                # Style the 'Normalized Score' column
-                styled_display_style = styled_display.style.applymap(color_cell, subset=['Normalized Score'])
-                # Replace applymap with map to avoid FutureWarnings
                 styled_display_style = styled_display.style.map(
-                    {'Normalized Score': styled_display['Normalized Score'].apply(lambda x: 'background-color: green' if x >=7 else ('background-color: yellow' if x >=5 else 'background-color: red'))}
+                    {'Normalized Score': styled_display['Normalized Score'].apply(
+                        lambda x: 'background-color: green' if x >=7 else ('background-color: yellow' if x >=5 else 'background-color: red'))
+                    }
                 )
 
                 st.write("### Ranked Scenarios with Gradient Colors")
                 st.dataframe(styled_display_style)
 
-if __name__ == "__main__":
-    main()
+    if __name__ == "__main__":
+        main()
