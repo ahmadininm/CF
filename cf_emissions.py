@@ -40,7 +40,7 @@ def initialize_session_state():
         st.session_state.scenario_desc_df = pd.DataFrame(columns=["Scenario", "Description"])
     
     if 'criteria_df' not in st.session_state:
-        st.session_state.criteria_df = pd.DataFrame()
+        st.session_state.criteria_df = pd.DataFrame(columns=["Scenario"])
     
     if 'selected_criteria' not in st.session_state:
         st.session_state.selected_criteria = []
@@ -135,6 +135,8 @@ def main():
                     new_row = pd.DataFrame({"Item": [item_name.strip()], "Daily Usage (Units)": [usage]})
                     st.session_state.bau_data = pd.concat([bau_data, new_row], ignore_index=True)
                     st.session_state.emission_factors[item_name.strip()] = emission_factor
+                    # Update 'bau_data' variable to include new row
+                    bau_data = st.session_state.bau_data
                 else:
                     st.warning(f"Item '{item_name.strip()}' already exists.")
 
@@ -300,16 +302,9 @@ def main():
     }
 
     # Allow adding multiple "Other" criteria dynamically
-    other_trend_options = ["Other - Positive Trend", "Other - Negative Trend"]
-    selected_criteria = st.multiselect(
-        "Select the criteria you want to consider:",
-        list(criteria_options.keys()),
-        key="selected_criteria_multiselect"
-    )
-
-    selected_other_trends = [crit for crit in selected_criteria if crit in other_trend_options]
+    selected_other_trends = [crit for crit in st.session_state.selected_criteria if crit in ["Other - Positive Trend", "Other - Negative Trend"]]
     
-    # For each "Other" trend selected, allow adding multiple criteria
+    # Initialize list to keep track of dynamically added "Other" criteria
     for trend in selected_other_trends:
         st.write(f"### {trend}")
         num_other = st.number_input(
@@ -337,7 +332,7 @@ def main():
                     st.session_state.dynamic_other_criteria.append(full_crit_name)
                 else:
                     st.warning(f"Criterion '{full_crit_name}' already exists.")
-    
+
     # Allow adding new "Other" criteria beyond initial selections
     st.write("### Add More 'Other' Criteria")
     add_more_other = st.checkbox("Add more 'Other' criteria", key="add_more_other_checkbox")
@@ -364,80 +359,105 @@ def main():
             else:
                 st.warning(f"Criterion '{full_crit_name}' already exists.")
 
+    # Let user select criteria
+    selected_criteria = st.multiselect(
+        "Select the criteria you want to consider:",
+        list(criteria_options.keys()),
+        key="selected_criteria_multiselect"
+    )
+    st.session_state.selected_criteria = selected_criteria  # Update session state
+
     # Show descriptions for selected criteria (with HTML enabled)
     for crit in selected_criteria:
         st.markdown(f"**{crit}:** {criteria_options[crit]}", unsafe_allow_html=True)
 
+    # Define column-based criteria
+    # Including 'Other - Negative Trend' in scale_criteria for inversion
+    scale_criteria = {
+        "Technical Feasibility", 
+        "Supplier Reliability and Technology Readiness", 
+        "Implementation Complexity",
+        "Scalability", 
+        "Maintenance Requirements", 
+        "Regulatory Compliance", 
+        "Risk for Workforce Safety",
+        "Risk for Operations", 
+        "Impact on Product Quality", 
+        "Customer and Stakeholder Alignment",
+        "Priority for our organisation",
+        "Other - Negative Trend"  # For inversion
+    }
+
     # If criteria selected, display an editable table for scenarios vs criteria
     if selected_criteria:
-        # Ensure results_df is defined before using it
-        if 'scenario_percent_df' in st.session_state and not st.session_state.scenario_percent_df.empty:
-            scenario_names = results_df["Scenario"].tolist()
-            # Initialize or update criteria_df in session state
-            if st.session_state.criteria_df.empty:
-                criteria_df = pd.DataFrame(columns=["Scenario"] + selected_criteria)
-                criteria_df["Scenario"] = scenario_names
-                for c in selected_criteria:
-                    criteria_df[c] = 1
-                st.session_state.criteria_df = criteria_df
-            else:
-                # Update criteria_df columns based on selected_criteria
-                criteria_df = st.session_state.criteria_df
-                for c in selected_criteria:
-                    if c not in criteria_df.columns:
-                        criteria_df[c] = 1
-                # Remove criteria that are no longer selected
-                for c in list(criteria_df.columns):
-                    if c not in selected_criteria and c != "Scenario":
-                        criteria_df = criteria_df.drop(columns=[c])
-                st.session_state.criteria_df = criteria_df
-
-            # Define column configurations
-            column_config = {
-                "Scenario": st.column_config.TextColumn(
-                    "Scenario"
-                    # Read-only by default
-                )
-            }
-
+        # Initialize or update criteria_df in session state
+        if st.session_state.criteria_df.empty:
+            criteria_df = pd.DataFrame(columns=["Scenario"] + selected_criteria)
+            criteria_df["Scenario"] = results_df["Scenario"].tolist() if 'results_df' in locals() else []
             for c in selected_criteria:
-                if c in scale_criteria:
-                    column_config[c] = st.column_config.NumberColumn(
-                        label=c,
-                        format="%.0f",           # Ensures integer input
-                        min_value=1, 
-                        max_value=10
-                    )
-                else:
-                    column_config[c] = st.column_config.NumberColumn(
-                        label=c
-                        # No additional constraints
-                    )
+                criteria_df[c] = 1
+            st.session_state.criteria_df = criteria_df
+        else:
+            # Update criteria_df columns based on selected_criteria
+            criteria_df = st.session_state.criteria_df
+            for c in selected_criteria:
+                if c not in criteria_df.columns:
+                    criteria_df[c] = 1
+            # Remove criteria that are no longer selected
+            for c in list(criteria_df.columns):
+                if c not in selected_criteria and c != "Scenario":
+                    criteria_df = criteria_df.drop(columns=[c])
+            st.session_state.criteria_df = criteria_df
 
-            st.write("Please assign values for each selected criterion to each scenario. Double-click a cell to edit. For (1-10) criteria, only enter values between 1 and 10.")
+        # Define column configurations
+        column_config = {
+            "Scenario": st.column_config.TextColumn(
+                "Scenario",
+                disabled=True  # Make Scenario column read-only
+            )
+        }
 
-            # Editable table for criteria values with input constraints
-            try:
-                edited_criteria_df = st.data_editor(
-                    st.session_state.criteria_df,
-                    use_container_width=True,
-                    key="criteria_editor",
-                    num_rows="dynamic",
-                    disabled=False,
-                    column_config=column_config
+        for c in selected_criteria:
+            if c in scale_criteria:
+                column_config[c] = st.column_config.NumberColumn(
+                    label=c,
+                    format="%.0f",           # Ensures integer input
+                    min_value=1, 
+                    max_value=10
                 )
-            except AttributeError:
-                edited_criteria_df = st.experimental_data_editor(
-                    st.session_state.criteria_df,
-                    use_container_width=True,
-                    key="criteria_editor",
-                    num_rows="dynamic",
-                    disabled=False,
-                    column_config=column_config
+            else:
+                column_config[c] = st.column_config.NumberColumn(
+                    label=c
+                    # No additional constraints
                 )
 
-            # Update session state with edited criteria
-            st.session_state.criteria_df = edited_criteria_df
+        st.write("Please assign values for each selected criterion to each scenario. Double-click a cell to edit. For (1-10) criteria, only enter values between 1 and 10.")
+
+        # Editable table for criteria values with input constraints
+        try:
+            edited_criteria_df = st.data_editor(
+                st.session_state.criteria_df,
+                use_container_width=True,
+                key="criteria_editor",
+                num_rows="dynamic",
+                disabled=False,
+                column_config=column_config
+            )
+        except AttributeError:
+            edited_criteria_df = st.experimental_data_editor(
+                st.session_state.criteria_df,
+                use_container_width=True,
+                key="criteria_editor",
+                num_rows="dynamic",
+                disabled=False,
+                column_config=column_config
+            )
+
+        # Update session state with edited criteria
+        st.session_state.criteria_df = edited_criteria_df
+
+
+
 
     # ----------------------- AI-Based Scoring -----------------------
 
