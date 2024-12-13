@@ -4,9 +4,13 @@ import numpy as np
 import openai
 import json
 import altair as alt  # For advanced visualizations
+import logging
+
+# Set up logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 # Initialize OpenAI API (Ensure you have the latest OpenAI SDK installed)
-# Run: pip install --upgrade openai
 try:
     from openai.error import OpenAIError
 except ImportError:
@@ -54,6 +58,9 @@ def initialize_session_state():
     
     if 'proposed_scenarios' not in st.session_state:
         st.session_state.proposed_scenarios = []
+    
+    if 'ai_proposed' not in st.session_state:
+        st.session_state.ai_proposed = False
 
 def clear_cache():
     """Clear Streamlit cache and rerun the app."""
@@ -251,6 +258,7 @@ You are an expert sustainability consultant. Based on the following description 
                     st.warning("AI was unable to generate three distinct scenarios. Please consider providing more detailed information.")
                 else:
                     st.session_state.proposed_scenarios = scenarios[:3]
+                    st.session_state.ai_proposed = True
                     st.success("Proposed scenarios generated successfully!")
             
             except OpenAIError as e:
@@ -271,7 +279,7 @@ You are an expert sustainability consultant. Based on the following description 
     st.subheader("Scenario Planning (Editable Table)")
 
     # Determine default scenarios (proposed by AI) or allow user to input their own
-    if st.session_state.proposed_scenarios:
+    if st.session_state.proposed_scenarios and st.session_state.ai_proposed:
         proposed = st.radio(
             "Would you like to use the AI-proposed scenarios?",
             ("Yes", "No"),
@@ -285,6 +293,7 @@ You are an expert sustainability consultant. Based on the following description 
                 "Scenario": scenario_names,
                 "Description": scenario_descriptions
             })
+            st.session_state.ai_proposed = False  # Reset after acceptance
         else:
             num_scenarios = st.number_input(
                 "How many scenarios do you want to add?",
@@ -298,6 +307,7 @@ You are an expert sustainability consultant. Based on the following description 
             scenario_desc_data = [[f"Scenario {i+1}", ""] for i in range(int(num_scenarios))]
             scenario_desc_df = pd.DataFrame(scenario_desc_data, columns=scenario_desc_columns)
             st.session_state.scenario_desc_df = scenario_desc_df
+            st.session_state.proposed_scenarios = []  # Clear proposed scenarios
 
     else:
         num_scenarios = st.number_input(
