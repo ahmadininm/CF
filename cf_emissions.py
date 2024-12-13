@@ -111,6 +111,13 @@ def main():
     bau_data["Daily Emissions (kg CO₂e)"] = bau_data["Daily Usage (Units)"] * bau_data["Emission Factor (kg CO₂e/unit)"]
     bau_data["Annual Emissions (kg CO₂e)"] = bau_data["Daily Emissions (kg CO₂e)"] * 365
 
+    # Reorder bau_data to ensure default items come first, followed by custom items
+    custom_items = bau_data[~bau_data["Item"].isin(default_items)]
+    bau_data = pd.concat([bau_data[bau_data["Item"].isin(default_items)], custom_items], ignore_index=True)
+
+    # Convert 'Item' to a categorical type to preserve order in the bar chart
+    bau_data['Item'] = pd.Categorical(bau_data['Item'], categories=bau_data['Item'], ordered=True)
+
     # Display BAU summary
     st.write("### BAU Results")
     total_daily_bau = bau_data['Daily Emissions (kg CO₂e)'].sum()
@@ -119,7 +126,7 @@ def main():
     st.write(f"**Total Daily Emissions (BAU):** {total_daily_bau:.2f} kg CO₂e/day")
     st.write(f"**Total Annual Emissions (BAU):** {total_annual_bau:.2f} kg CO₂e/year")
 
-    # Visualize BAU emissions
+    # Visualize BAU emissions with preserved order
     st.bar_chart(bau_data.set_index("Item")["Daily Emissions (kg CO₂e)"], use_container_width=True)
 
     # ----------------------- Scenario Planning -----------------------
@@ -289,7 +296,7 @@ def main():
             column_config = {
                 "Scenario": st.column_config.TextColumn(
                     "Scenario",
-                    editable=False  # Correct subclass and parameter
+                    read_only=True  # Corrected parameter
                 )
             }
 
@@ -304,6 +311,7 @@ def main():
                 else:
                     column_config[c] = st.column_config.NumberColumn(
                         label=c
+                        # No additional constraints
                     )
 
             # Editable table for criteria values with input constraints
