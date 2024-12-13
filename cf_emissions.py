@@ -5,7 +5,7 @@ import openai
 import json
 import altair as alt  # For advanced visualizations
 
-# Import OpenAIError correctly for SDK >=1.0.0
+# Import OpenAIError correctly for SDK <=0.28
 try:
     from openai.error import OpenAIError
 except ImportError:
@@ -50,6 +50,9 @@ def initialize_session_state():
     
     if 'dynamic_other_criteria' not in st.session_state:
         st.session_state.dynamic_other_criteria = []
+    
+    if 'proposed_scenarios' not in st.session_state:
+        st.session_state.proposed_scenarios = []
 
 def main():
     # Initialize session state
@@ -180,36 +183,130 @@ def main():
     # Visualize BAU emissions with preserved order
     st.bar_chart(bau_data.set_index("Item")["Daily Emissions (kg CO₂e)"], use_container_width=True)
 
+    # ----------------------- Propose Scenarios Using AI -----------------------
+
+    st.subheader("Propose Scenarios Using AI")
+
+    st.write("To help you generate relevant scenarios, please provide some details about your organization's activities and sustainability goals.")
+
+    activities = st.text_area(
+        "Describe your organization's key activities and sustainability goals:",
+        height=150,
+        key="activities_input"
+    )
+
+    if st.button("Generate Proposed Scenarios", key="generate_scenarios_button"):
+        if activities.strip() == "":
+            st.error("Please provide details about your organization's activities and sustainability goals.")
+        else:
+            prompt = f"""
+    You are an expert sustainability consultant. Based on the following description of an organization's activities and sustainability goals, propose three innovative scenarios to improve carbon savings and resource efficiency. Provide only the scenario names and brief descriptions in a list format.
+
+    ### Description:
+    {activities}
+
+    ### Proposed Scenarios:
+    1.
+    2.
+    3.
+    """
+
+            try:
+                response = openai.Completion.create(
+                    engine="text-davinci-003",
+                    prompt=prompt,
+                    max_tokens=300,
+                    temperature=0.7,
+                )
+                ai_output = response.choices[0].text.strip()
+
+                # Parse the AI output into a list of scenarios
+                scenarios = []
+                for line in ai_output.split('\n'):
+                    if line.strip().startswith(('1.', '2.', '3.')):
+                        scenario = line.split('.', 1)[1].strip()
+                        scenarios.append(scenario)
+
+                if len(scenarios) < 3:
+                    st.warning("AI was unable to generate three distinct scenarios. Please consider providing more detailed information.")
+                else:
+                    st.session_state.proposed_scenarios = scenarios[:3]
+                    st.success("Proposed scenarios generated successfully!")
+            
+            except OpenAIError as e:
+                st.error(f"Error with OpenAI API: {e}")
+            except Exception as e:
+                st.error(f"An unexpected error occurred: {e}")
+
+    # Display Proposed Scenarios
+    if st.session_state.proposed_scenarios:
+        st.write("### Proposed Scenarios")
+        for idx, scenario in enumerate(st.session_state.proposed_scenarios, 1):
+            st.write(f"**{idx}. {scenario}**")
+        
+        st.write("You can choose to accept these scenarios or modify them as needed.")
+
     # ----------------------- Scenario Planning -----------------------
 
     st.subheader("Scenario Planning (Editable Table)")
-    num_scenarios = st.number_input(
-        "How many scenarios do you want to add?",
-        min_value=1,
-        step=1,
-        value=1,
-        key="num_scenarios_input_2"
-    )
 
-    # Create a DataFrame for scenario descriptions
-    scenario_desc_columns = ["Scenario", "Description"]
-    scenario_desc_data = [[f"Scenario {i+1}", ""] for i in range(int(num_scenarios))]
-    scenario_desc_df = pd.DataFrame(scenario_desc_data, columns=scenario_desc_columns)
+    # Determine default scenarios (proposed by AI) or allow user to input their own
+    if st.session_state.proposed_scenarios:
+        proposed = st.radio(
+            "Would you like to use the AI-proposed scenarios?",
+            ("Yes", "No"),
+            key="use_proposed_scenarios_radio"
+        )
+        if proposed == "Yes":
+            num_scenarios = len(st.session_state.proposed_scenarios)
+            scenario_names = [f"Scenario {i+1}" for i in range(num_scenarios)]
+            scenario_descriptions = st.session_state.proposed_scenarios
+            st.session_state.scenario_desc_df = pd.DataFrame({
+                "Scenario": scenario_names,
+                "Description": scenario_descriptions
+            })
+        else:
+            num_scenarios = st.number_input(
+                "How many scenarios do you want to add?",
+                min_value=1,
+                step=1,
+                value=1,
+                key="num_scenarios_input_2"
+            )
+            # Create a DataFrame for scenario descriptions
+            scenario_desc_columns = ["Scenario", "Description"]
+            scenario_desc_data = [[f"Scenario {i+1}", ""] for i in range(int(num_scenarios))]
+            scenario_desc_df = pd.DataFrame(scenario_desc_data, columns=scenario_desc_columns)
+            st.session_state.scenario_desc_df = scenario_desc_df
+
+    else:
+        num_scenarios = st.number_input(
+            "How many scenarios do you want to add?",
+            min_value=1,
+            step=1,
+            value=1,
+            key="num_scenarios_input_2"
+        )
+        # Create a DataFrame for scenario descriptions
+        scenario_desc_columns = ["Scenario", "Description"]
+        scenario_desc_data = [[f"Scenario {i+1}", ""] for i in range(int(num_scenarios))]
+        scenario_desc_df = pd.DataFrame(scenario_desc_data, columns=scenario_desc_columns)
+        st.session_state.scenario_desc_df = scenario_desc_df
 
     st.write("Please describe each scenario. Double-click a cell to edit the description.")
 
     # Editable table for scenario descriptions
     try:
-        edited_scenario_desc_df = st.data_editor(scenario_desc_df, use_container_width=True, key="scenario_desc_editor")
+        edited_scenario_desc_df = st.data_editor(st.session_state.scenario_desc_df, use_container_width=True, key="scenario_desc_editor")
     except AttributeError:
-        edited_scenario_desc_df = st.experimental_data_editor(scenario_desc_df, use_container_width=True, key="scenario_desc_editor")
+        edited_scenario_desc_df = st.experimental_data_editor(st.session_state.scenario_desc_df, use_container_width=True, key="scenario_desc_editor")
 
     # Save edited scenario descriptions to session state
     st.session_state['scenario_desc_df'] = edited_scenario_desc_df
 
     # Create a DataFrame with one column per scenario
-    scenario_columns = ["Item"] + [f"Scenario {i+1} (%)" for i in range(int(num_scenarios))]
-    scenario_data = [[item] + [100.0]*int(num_scenarios) for item in bau_data["Item"]]
+    scenario_columns = ["Item"] + [f"{row['Scenario']} (%)" for index, row in st.session_state.scenario_desc_df.iterrows()]
+    scenario_data = [[item] + [100.0]*len(st.session_state.scenario_desc_df) for item in bau_data["Item"]]
     scenario_df = pd.DataFrame(scenario_data, columns=scenario_columns)
 
     st.write("Please adjust the percentages for each scenario. Double-click a cell to edit the value.")
@@ -398,7 +495,8 @@ def main():
             if 'results_df' in locals() and not results_df.empty:
                 criteria_df["Scenario"] = results_df["Scenario"].tolist()
             else:
-                criteria_df["Scenario"] = [f"Scenario {i+1}" for i in range(len(results_df))] if 'results_df' in locals() and not results_df.empty else ["Scenario 1"]
+                # Assign scenario names from scenario_desc_df
+                criteria_df["Scenario"] = st.session_state.scenario_desc_df["Scenario"].tolist()
             for c in selected_criteria:
                 criteria_df[c] = 1
             st.session_state.criteria_df = criteria_df
@@ -487,16 +585,13 @@ You are an expert sustainability analyst. Based on the following scenario descri
 """
 
             try:
-                response = openai.ChatCompletion.create(
-                    model="gpt-3.5-turbo",
-                    messages=[
-                        {"role": "system", "content": "You are an expert sustainability analyst."},
-                        {"role": "user", "content": prompt}
-                    ],
+                response = openai.Completion.create(
+                    engine="text-davinci-003",
+                    prompt=prompt,
                     max_tokens=150,
                     temperature=0.3,
                 )
-                ai_output = response['choices'][0]['message']['content'].strip()
+                ai_output = response.choices[0].text.strip()
                 # Attempt to parse the JSON output
                 try:
                     scores = json.loads(ai_output)
@@ -550,8 +645,14 @@ You are an expert sustainability analyst. Based on the following scenario descri
                     if crit in scale_criteria:
                         inversion_criteria.append(crit)
 
+                # Define specific criteria to normalize
+                criteria_to_normalize = ["Return on Investment (ROI)(years)", "Initial investment (£)", "Other - Positive Trend", "Other - Negative Trend"]
+
                 # Now scale each criterion
                 for crit in selected_criteria:
+                    if crit not in criteria_to_normalize:
+                        continue  # Skip criteria that don't need normalization
+
                     try:
                         values = scaled_criteria_df[crit].astype(float).values
                     except:
@@ -561,25 +662,33 @@ You are an expert sustainability analyst. Based on the following scenario descri
                     min_val = np.min(values)
                     max_val = np.max(values)
 
-                    if crit in inversion_criteria:
-                        # Invert scale: lower value -> 10, higher value -> 1
+                    if crit == "Other - Positive Trend":
+                        # Higher is better: scale to 10 - higher value
+                        if max_val == min_val:
+                            scaled_values = np.ones_like(values) * 10 if min_val != 0 else np.zeros_like(values)
+                        else:
+                            scaled_values = 1 + 9 * (values - min_val) / (max_val - min_val)
+                        scaled_criteria_df[crit] = scaled_values
+                    elif crit == "Other - Negative Trend":
+                        # Higher is worse: reverse scale
                         if max_val == min_val:
                             scaled_values = np.ones_like(values) * 10 if min_val != 0 else np.zeros_like(values)
                         else:
                             scaled_values = 10 - 9 * (values - min_val) / (max_val - min_val)
                         scaled_criteria_df[crit] = scaled_values
-
-                    elif crit in scale_criteria:
-                        # Already 1-10 scale where higher is better. Ensure values are within 1-10
-                        scaled_values = np.clip(values, 1, 10)
-                        scaled_criteria_df[crit] = scaled_values
-
-                    else:
-                        # For non-scale criteria that are not inverted, scale so min=1, max=10 (higher is better)
+                    elif crit == "Return on Investment (ROI)(years)":
+                        # Lower ROI is better: reverse scale
                         if max_val == min_val:
                             scaled_values = np.ones_like(values) * 10 if min_val != 0 else np.zeros_like(values)
                         else:
-                            scaled_values = 1 + 9 * (values - min_val) / (max_val - min_val)
+                            scaled_values = 10 - 9 * (values - min_val) / (max_val - min_val)
+                        scaled_criteria_df[crit] = scaled_values
+                    elif crit == "Initial investment (£)":
+                        # Lower investment is better: reverse scale
+                        if max_val == min_val:
+                            scaled_values = np.ones_like(values) * 10 if min_val != 0 else np.zeros_like(values)
+                        else:
+                            scaled_values = 10 - 9 * (values - min_val) / (max_val - min_val)
                         scaled_criteria_df[crit] = scaled_values
 
                 # Calculate the sum of criteria for each scenario
@@ -604,10 +713,10 @@ You are an expert sustainability analyst. Based on the following scenario descri
 
                 scaled_criteria_df['Color'] = scaled_criteria_df['Normalized Score'].apply(get_color)
 
-                # Rank the scenarios based on Normalized Score
-                scaled_criteria_df['Rank'] = scaled_criteria_df['Normalized Score'].rank(method='min', ascending=False).astype(int)
+                # Rank the scenarios based on Total Score
+                scaled_criteria_df['Rank'] = scaled_criteria_df['Total Score'].rank(method='min', ascending=False).astype(int)
 
-                st.write("### Normalized Results (All Criteria Scaled 1-10)")
+                st.write("### Normalized Results (Selected Criteria Normalized)")
                 st.dataframe(scaled_criteria_df.round(2))
 
                 # Visualize the normalized scores with color gradients using Altair
@@ -649,5 +758,5 @@ You are an expert sustainability analyst. Based on the following scenario descri
                 st.write("### Ranked Scenarios with Gradient Colors")
                 st.dataframe(styled_display_style)
 
-if __name__ == "__main__":
-    main()
+    if __name__ == "__main__":
+        main()
