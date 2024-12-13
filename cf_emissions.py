@@ -76,8 +76,20 @@ def main():
     st.title("Sustainability Decision Assistant")
     st.write("*A tool to prioritize scenarios for carbon savings and resource efficiency, enabling data-driven sustainable decisions.*")
 
-    # Add Cache Clearing Button
-    clear_cache()
+    from openai import OpenAI
+
+client = OpenAI(
+    # defaults to os.environ.get("OPENAI_API_KEY")
+    api_key="private",
+)
+
+def chat_gpt(prompt):
+    response = client.chat.completions.create(
+        model="gpt-3.5-turbo",
+        messages=[{"role": "user", "content": prompt}]
+    )
+    return response.choices[0].message.content.strip()
+    
 
     # Display Streamlit and OpenAI package versions for debugging
     try:
