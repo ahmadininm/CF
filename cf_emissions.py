@@ -285,6 +285,27 @@ def main():
 
             st.write("Please assign values for each selected criterion to each scenario. Double-click a cell to edit. For (1-10) criteria, only enter values between 1 and 10.")
 
+            # Define column configurations
+            column_config = {
+                "Scenario": st.column_config.Column(
+                    "Scenario",
+                    editable=False
+                )
+            }
+
+            for c in selected_criteria:
+                if c in scale_criteria:
+                    column_config[c] = st.column_config.NumberColumn(
+                        label=c,
+                        format="%.0f",
+                        min_value=1,
+                        max_value=10
+                    )
+                else:
+                    column_config[c] = st.column_config.NumberColumn(
+                        label=c
+                    )
+
             # Editable table for criteria values with input constraints
             try:
                 edited_criteria_df = st.data_editor(
@@ -293,19 +314,7 @@ def main():
                     key="criteria_editor",
                     num_rows="dynamic",
                     disabled=False,
-                    columns=[
-                        {"id": "Scenario", "name": "Scenario", "editable": False},
-                    ] + [
-                        {
-                            "id": c, 
-                            "name": c, 
-                            "type": "number", 
-                            "format": {"specifier": ".0f"},  # Ensures integer input
-                            "min_value": 1, 
-                            "max_value": 10
-                        } if c in scale_criteria else {"id": c, "name": c, "type": "number"}
-                        for c in selected_criteria
-                    ]
+                    column_config=column_config  # Updated parameter
                 )
             except AttributeError:
                 edited_criteria_df = st.experimental_data_editor(
@@ -314,19 +323,7 @@ def main():
                     key="criteria_editor",
                     num_rows="dynamic",
                     disabled=False,
-                    columns=[
-                        {"id": "Scenario", "name": "Scenario", "editable": False},
-                    ] + [
-                        {
-                            "id": c, 
-                            "name": c, 
-                            "type": "number", 
-                            "format": {"specifier": ".0f"},  # Ensures integer input
-                            "min_value": 1, 
-                            "max_value": 10
-                        } if c in scale_criteria else {"id": c, "name": c, "type": "number"}
-                        for c in selected_criteria
-                    ]
+                    column_config=column_config  # Updated parameter
                 )
 
         # ----------------------- AI-Based Scoring -----------------------
@@ -398,9 +395,9 @@ You are an expert sustainability analyst. Based on the following scenario descri
 
             # Update the criteria_df with assigned scores
             try:
-                edited_criteria_df = st.data_editor(criteria_df, use_container_width=True, key="criteria_editor_with_scores")
+                edited_criteria_df = st.data_editor(criteria_df, use_container_width=True, key="criteria_editor_with_scores", column_config=column_config)
             except AttributeError:
-                edited_criteria_df = st.experimental_data_editor(criteria_df, use_container_width=True, key="criteria_editor_with_scores")
+                edited_criteria_df = st.experimental_data_editor(criteria_df, use_container_width=True, key="criteria_editor_with_scores", column_config=column_config)
 
     # ----------------------- Run Model -----------------------
 
