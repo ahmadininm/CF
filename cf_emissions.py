@@ -52,13 +52,6 @@ def initialize_session_state():
     if 'ai_proposed' not in st.session_state:
         st.session_state.ai_proposed = False
 
-def clear_cache():
-    """Clear Streamlit cache and rerun the app."""
-    if st.button("Clear Cache"):
-        st.cache_data.clear()
-        st.cache_resource.clear()
-        st.experimental_rerun()
-
 def chat_gpt(prompt):
     """Function to interact with OpenAI's ChatCompletion API."""
     try:
@@ -70,12 +63,10 @@ def chat_gpt(prompt):
     except openai.error.OpenAIError as e:
         logger.error(f"OpenAI API Error: {e}")
         st.error(f"OpenAI API Error: {e}")
-        st.write(f"Detailed OpenAI Error: {e}")  # Additional debugging
         return None
     except Exception as e:
         logger.error(f"Unexpected Error: {e}")
         st.error(f"An unexpected error occurred: {e}")
-        st.write(f"Detailed Unexpected Error: {e}")  # Additional debugging
         return None
 
 def main():
@@ -88,9 +79,6 @@ def main():
     # Main Title and Description
     st.title("Sustainability Decision Assistant")
     st.write("*A tool to prioritize scenarios for carbon savings and resource efficiency, enabling data-driven sustainable decisions.*")
-
-    # Add Cache Clearing Button
-    clear_cache()
 
     # Display Streamlit and OpenAI package versions for debugging
     try:
@@ -650,6 +638,7 @@ You are an expert sustainability consultant. Based on the following description 
                 scaled_criteria_df['Rank'] = scaled_criteria_df['Total Score'].rank(method='min', ascending=False).astype(int)
 
                 # Calculate CO₂ Savings
+                total_annual_bau = st.session_state.bau_data['Annual Emissions (kg CO₂e)'].sum()
                 scaled_criteria_df['CO₂ Saving (kg CO₂e/year)'] = total_annual_bau - (scaled_criteria_df['Total Score'] - scaled_criteria_df['Normalized Score'])
                 scaled_criteria_df['CO₂ Saving (%)'] = (scaled_criteria_df['CO₂ Saving (kg CO₂e/year)'] / total_annual_bau * 100) if total_annual_bau != 0 else 0
 
@@ -673,7 +662,7 @@ You are an expert sustainability consultant. Based on the following description 
                 styled_display = scaled_criteria_df[['Scenario', 'Normalized Score', 'Rank']].copy()
                 styled_display = styled_display.sort_values('Rank')
 
-                # Apply color formatting based on 'Normalized Score' using Styler.map
+                # Apply color formatting based on 'Normalized Score' using Styler.applymap
                 styled_display_style = styled_display.style.applymap(
                     lambda x: 'background-color: green' if x >=7 else ('background-color: yellow' if x >=5 else 'background-color: red'),
                     subset=['Normalized Score']
