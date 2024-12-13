@@ -223,7 +223,8 @@ def main():
         "Technical Feasibility", "Supplier Reliability and Technology Readiness", "Implementation Complexity",
         "Scalability", "Maintenance Requirements", "Regulatory Compliance", "Risk for Workforce Safety",
         "Risk for Operations", "Impact on Product Quality", "Customer and Stakeholder Alignment",
-        "Priority for our organisation"
+        "Priority for our organisation",
+        "Other - Negative Trend"  # Including 'Other - Negative Trend' for inversion
     }
 
     # Criteria options with brief, color-coded descriptions for the 1-10 scale criteria
@@ -241,7 +242,8 @@ def main():
         "Priority for our organisation": "<span style='color:red;'>1-4: low priority</span>, <span style='color:orange;'>5-6: moderate</span>, <span style='color:green;'>7-10: top priority</span>",
         "Initial investment (£)": "Enter the upfront cost needed (no scale limit).",
         "Return on Investment (ROI)(years)": "Enter the time (in years) to recover the initial cost (no scale limit).",
-        "Other": "If your desired criterion is not listed, select this and specify it."
+        "Other - Positive Trend": "Enter criteria where a higher number is more beneficial.",
+        "Other - Negative Trend": "Enter criteria where a higher number is less beneficial."
     }
 
     # Let user select criteria
@@ -251,109 +253,79 @@ def main():
         key="selected_criteria_multiselect"
     )
 
-    # If user selected "Other", ask for custom criterion name and a checkbox to indicate inversion
-    if "Other" in selected_criteria:
-        other_name = st.text_input(
-            "Enter the name for the 'Other' criterion:",
-            key="other_name_input"
-        )
-        if other_name.strip():
-            # Replace "Other" with user-defined name
-            selected_criteria.remove("Other")
-            selected_criteria.append(other_name.strip())
-            
-            # Checkbox to indicate if higher numbers are better
-            is_higher_better = st.checkbox(
-                f"Does a higher number represent a more beneficial outcome for '{other_name.strip()}'?",
-                key="other_scale_checkbox"
-            )
-            
-            # Update criteria options based on user input
-            if is_higher_better:
-                criteria_options[other_name.strip()] = "1-10 scale, higher = more beneficial"
-            else:
-                criteria_options[other_name.strip()] = "1-10 scale, higher = less beneficial (inverse interpretation)"
-            
-            # Update scale_criteria if necessary
-            if not is_higher_better:
-                scale_criteria.add(other_name.strip())
-
     # Show descriptions for selected criteria (with HTML enabled)
     for crit in selected_criteria:
         st.markdown(f"**{crit}:** {criteria_options[crit]}", unsafe_allow_html=True)
 
     # If criteria selected, display an editable table for scenarios vs criteria
     if selected_criteria:
-        # Ensure results_df is defined before using it
-        if 'results_df' not in locals():
-            st.warning("Please run the model to generate scenario results first.")
-        else:
-            scenario_names = results_df["Scenario"].tolist()
-            criteria_df = pd.DataFrame(columns=["Scenario"] + selected_criteria)
-            criteria_df["Scenario"] = scenario_names
+        # Create a DataFrame with one column per scenario
+        scenario_names = results_df["Scenario"].tolist()
+        criteria_df = pd.DataFrame(columns=["Scenario"] + selected_criteria)
+        criteria_df["Scenario"] = scenario_names
 
-            # Initialize all values to 1 for scale-based criteria
-            for c in selected_criteria:
-                criteria_df[c] = 1
+        # Initialize all values to 1 for scale-based criteria
+        for c in selected_criteria:
+            criteria_df[c] = 1
 
-            st.write("Please assign values for each selected criterion to each scenario. Double-click a cell to edit. For (1-10) criteria, only enter values between 1 and 10.")
+        st.write("Please assign values for each selected criterion to each scenario. Double-click a cell to edit. For (1-10) criteria, only enter values between 1 and 10.")
 
-            # Define column configurations
-            column_config = {
-                "Scenario": st.column_config.TextColumn(
-                    "Scenario"
-                    # No 'read_only' or 'editable' parameter needed; TextColumn is read-only by default
+        # Define column configurations
+        column_config = {
+            "Scenario": st.column_config.TextColumn(
+                "Scenario"
+                # No 'read_only' or 'editable' parameter needed; TextColumn is read-only by default
+            )
+        }
+
+        for c in selected_criteria:
+            if c in scale_criteria:
+                column_config[c] = st.column_config.NumberColumn(
+                    label=c,
+                    format="%.0f",           # Ensures integer input
+                    min_value=1, 
+                    max_value=10
                 )
-            }
-
-            for c in selected_criteria:
-                if c in scale_criteria:
-                    column_config[c] = st.column_config.NumberColumn(
-                        label=c,
-                        format="%.0f",           # Ensures integer input
-                        min_value=1, 
-                        max_value=10
-                    )
-                else:
-                    column_config[c] = st.column_config.NumberColumn(
-                        label=c
-                        # No additional constraints
-                    )
-
-            # Editable table for criteria values with input constraints
-            try:
-                edited_criteria_df = st.data_editor(
-                    criteria_df,
-                    use_container_width=True,
-                    key="criteria_editor",
-                    num_rows="dynamic",
-                    disabled=False,
-                    column_config=column_config  # Updated parameter
-                )
-            except AttributeError:
-                edited_criteria_df = st.experimental_data_editor(
-                    criteria_df,
-                    use_container_width=True,
-                    key="criteria_editor",
-                    num_rows="dynamic",
-                    disabled=False,
-                    column_config=column_config  # Updated parameter
+            else:
+                column_config[c] = st.column_config.NumberColumn(
+                    label=c
+                    # No additional constraints
                 )
 
-    # ----------------------- AI-Based Scoring -----------------------
+        # Editable table for criteria values with input constraints
+        try:
+            edited_criteria_df = st.data_editor(
+                criteria_df,
+                use_container_width=True,
+                key="criteria_editor",
+                num_rows="dynamic",
+                disabled=False,
+                column_config=column_config  # Updated parameter
+            )
+        except AttributeError:
+            edited_criteria_df = st.experimental_data_editor(
+                criteria_df,
+                use_container_width=True,
+                key="criteria_editor",
+                num_rows="dynamic",
+                disabled=False,
+                column_config=column_config  # Updated parameter
+            )
 
-    # Assign default scores based on scenario descriptions using AI analysis
-    scenario_desc = st.session_state.get('edited_scenario_desc_df')
-    if scenario_desc is not None and not scenario_desc.empty:
-        for idx, row in scenario_desc.iterrows():
-            description = row["Description"].strip()
-            scenario = row["Scenario"]
+        # ----------------------- AI-Based Scoring -----------------------
 
-            if description == "":
-                continue  # Skip empty descriptions
+        # Assign default scores based on scenario descriptions using AI analysis
+        scenario_desc = st.session_state.get('edited_scenario_desc_df')
+        if scenario_desc is not None and not scenario_desc.empty:
+            for idx, row in scenario_desc.iterrows():
+                description = row["Description"].strip()
+                scenario = row["Scenario"]
 
-            # Prepare the prompt for the AI model
-            prompt = f"""
+                if description == "":
+                    continue  # Skip empty descriptions
+
+                # Prepare the prompt for the AI model
+                prompt = f"""
 You are an expert sustainability analyst. Based on the following scenario description, assign a score between 1 and 10 for each of the selected sustainability criteria. Provide only the scores in JSON format.
 
 ### Scenario Description:
@@ -365,185 +337,181 @@ You are an expert sustainability analyst. Based on the following scenario descri
 ### JSON Output:
 """
 
-            try:
-                response = openai.ChatCompletion.create(
-                    model="gpt-3.5-turbo",
-                    messages=[
-                        {"role": "system", "content": "You are an expert sustainability analyst."},
-                        {"role": "user", "content": prompt}
-                    ],
-                    max_tokens=150,
-                    temperature=0.3,
-                )
-                ai_output = response.choices[0].message['content'].strip()
-                # Attempt to parse the JSON output
                 try:
-                    scores = json.loads(ai_output)
-                    if isinstance(scores, dict):
-                        for crit in selected_criteria:
-                            if crit in scores:
-                                score = scores[crit]
-                                # Validate score is between 1 and 10
-                                if isinstance(score, (int, float)) and 1 <= score <= 10:
-                                    criteria_df.loc[criteria_df["Scenario"] == scenario, crit] = score
+                    response = openai.ChatCompletion.create(
+                        model="gpt-3.5-turbo",
+                        messages=[
+                            {"role": "system", "content": "You are an expert sustainability analyst."},
+                            {"role": "user", "content": prompt}
+                        ],
+                        max_tokens=150,
+                        temperature=0.3,
+                    )
+                    ai_output = response.choices[0].message['content'].strip()
+                    # Attempt to parse the JSON output
+                    try:
+                        scores = json.loads(ai_output)
+                        if isinstance(scores, dict):
+                            for crit in selected_criteria:
+                                if crit in scores:
+                                    score = scores[crit]
+                                    # Validate score is between 1 and 10
+                                    if isinstance(score, (int, float)) and 1 <= score <= 10:
+                                        criteria_df.loc[criteria_df["Scenario"] == scenario, crit] = score
+                                    else:
+                                        criteria_df.loc[criteria_df["Scenario"] == scenario, crit] = 5  # Neutral score
                                 else:
-                                    criteria_df.loc[criteria_df["Scenario"] == scenario, crit] = 5  # Neutral score
-                            else:
-                                # If criterion not in scores, assign neutral
+                                    # If criterion not in scores, assign neutral
+                                    criteria_df.loc[criteria_df["Scenario"] == scenario, crit] = 5
+                        else:
+                            # If not a dict, assign neutral scores
+                            for crit in selected_criteria:
                                 criteria_df.loc[criteria_df["Scenario"] == scenario, crit] = 5
-                    else:
-                        # If not a dict, assign neutral scores
+                    except json.JSONDecodeError:
+                        # If JSON parsing fails, assign neutral scores
                         for crit in selected_criteria:
                             criteria_df.loc[criteria_df["Scenario"] == scenario, crit] = 5
-                except json.JSONDecodeError:
-                    # If JSON parsing fails, assign neutral scores
+                except openai.error.OpenAIError as e:
+                    st.error(f"Error with OpenAI API: {e}")
                     for crit in selected_criteria:
                         criteria_df.loc[criteria_df["Scenario"] == scenario, crit] = 5
-            except openai.error.OpenAIError as e:
-                st.error(f"Error with OpenAI API: {e}")
-                for crit in selected_criteria:
-                    criteria_df.loc[criteria_df["Scenario"] == scenario, crit] = 5
-            except Exception as e:
-                st.error(f"An unexpected error occurred: {e}")
-                for crit in selected_criteria:
-                    criteria_df.loc[criteria_df["Scenario"] == scenario, crit] = 5
+                except Exception as e:
+                    st.error(f"An unexpected error occurred: {e}")
+                    for crit in selected_criteria:
+                        criteria_df.loc[criteria_df["Scenario"] == scenario, crit] = 5
 
-        # Update the criteria_df with assigned scores
-        try:
-            edited_criteria_df = st.data_editor(
-                criteria_df, 
-                use_container_width=True, 
-                key="criteria_editor_with_scores", 
-                column_config=column_config  # Updated parameter
-            )
-        except AttributeError:
-            edited_criteria_df = st.experimental_data_editor(
-                criteria_df, 
-                use_container_width=True, 
-                key="criteria_editor_with_scores", 
-                column_config=column_config  # Updated parameter
-            )
+            # Update the criteria_df with assigned scores
+            try:
+                edited_criteria_df = st.data_editor(
+                    criteria_df, 
+                    use_container_width=True, 
+                    key="criteria_editor_with_scores", 
+                    column_config=column_config  # Updated parameter
+                )
+            except AttributeError:
+                edited_criteria_df = st.experimental_data_editor(
+                    criteria_df, 
+                    use_container_width=True, 
+                    key="criteria_editor_with_scores", 
+                    column_config=column_config  # Updated parameter
+                )
 
     # ----------------------- Run Model -----------------------
 
-    # Only proceed if criteria were selected and edited_criteria_df is defined
-    if selected_criteria and 'edited_criteria_df' in locals() and edited_criteria_df is not None and not edited_criteria_df.empty:
-        if st.button("Run Model"):
-            # Check if all required values are filled
-            if edited_criteria_df.isnull().values.any():
-                st.error("Please ensure all criteria values are filled.")
-            else:
-                # Create a copy for scaled results
-                scaled_criteria_df = edited_criteria_df.copy()
-
-                # Define which criteria need inversion (lower is better)
-                inversion_criteria = []
-                for crit in selected_criteria:
-                    if crit in scale_criteria:
-                        inversion_criteria.append(crit)
-
-                # Now scale each criterion
-                for crit in selected_criteria:
-                    try:
-                        values = scaled_criteria_df[crit].astype(float).values
-                    except:
-                        scaled_criteria_df[crit] = 5  # Assign neutral score if conversion fails
-                        values = scaled_criteria_df[crit].astype(float).values
-
-                    min_val = np.min(values)
-                    max_val = np.max(values)
-
-                    if crit in inversion_criteria:
-                        # Invert scale: lower value -> 10, higher value -> 1
-                        if max_val == min_val:
-                            scaled_values = np.ones_like(values) * 10 if min_val != 0 else np.zeros_like(values)
-                        else:
-                            scaled_values = 10 - 9 * (values - min_val) / (max_val - min_val)
-                        scaled_criteria_df[crit] = scaled_values
-
-                    elif crit in scale_criteria:
-                        # Already 1-10 scale where higher is better. Ensure values are within 1-10
-                        scaled_values = np.clip(values, 1, 10)
-                        scaled_criteria_df[crit] = scaled_values
-
-                    else:
-                        # For non-scale criteria that are not inverted, scale so min=1, max=10 (higher is better)
-                        if max_val == min_val:
-                            scaled_values = np.ones_like(values) * 10 if min_val != 0 else np.zeros_like(values)
-                        else:
-                            scaled_values = 1 + 9 * (values - min_val) / (max_val - min_val)
-                        scaled_criteria_df[crit] = scaled_values
-
-                # Calculate the sum of criteria for each scenario
-                scaled_criteria_df['Total Score'] = scaled_criteria_df[selected_criteria].sum(axis=1)
-
-                # Normalize the total scores between 1 and 10
-                min_score = scaled_criteria_df['Total Score'].min()
-                max_score = scaled_criteria_df['Total Score'].max()
-                if max_score != min_score:
-                    scaled_criteria_df['Normalized Score'] = 1 + 9 * (scaled_criteria_df['Total Score'] - min_score) / (max_score - min_score)
+        # Only proceed if criteria were selected and edited_criteria_df is defined
+        if selected_criteria and 'edited_criteria_df' in locals() and edited_criteria_df is not None and not edited_criteria_df.empty:
+            if st.button("Run Model"):
+                # Check if all required values are filled
+                if edited_criteria_df.isnull().values.any():
+                    st.error("Please ensure all criteria values are filled.")
                 else:
-                    scaled_criteria_df['Normalized Score'] = 5  # Assign a neutral score if all scores are equal
+                    # Create a copy for scaled results
+                    scaled_criteria_df = edited_criteria_df.copy()
 
-                # Assign colors based on normalized scores
-                def get_color(score):
-                    if score >= 7:
-                        return 'green'
-                    elif score >= 5:
-                        return 'yellow'
+                    # Define which criteria need inversion (lower is better)
+                    inversion_criteria = []
+                    for crit in selected_criteria:
+                        if crit in scale_criteria:
+                            inversion_criteria.append(crit)
+
+                    # Now scale each criterion
+                    for crit in selected_criteria:
+                        try:
+                            values = scaled_criteria_df[crit].astype(float).values
+                        except:
+                            scaled_criteria_df[crit] = 5  # Assign neutral score if conversion fails
+                            values = scaled_criteria_df[crit].astype(float).values
+
+                        min_val = np.min(values)
+                        max_val = np.max(values)
+
+                        if crit in inversion_criteria:
+                            # Invert scale: lower value -> 10, higher value -> 1
+                            if max_val == min_val:
+                                scaled_values = np.ones_like(values) * 10 if min_val != 0 else np.zeros_like(values)
+                            else:
+                                scaled_values = 10 - 9 * (values - min_val) / (max_val - min_val)
+                            scaled_criteria_df[crit] = scaled_values
+
+                        elif crit in scale_criteria:
+                            # Already 1-10 scale where higher is better. Ensure values are within 1-10
+                            scaled_values = np.clip(values, 1, 10)
+                            scaled_criteria_df[crit] = scaled_values
+
+                        else:
+                            # For non-scale criteria that are not inverted, scale so min=1, max=10 (higher is better)
+                            if max_val == min_val:
+                                scaled_values = np.ones_like(values) * 10 if min_val != 0 else np.zeros_like(values)
+                            else:
+                                scaled_values = 1 + 9 * (values - min_val) / (max_val - min_val)
+                            scaled_criteria_df[crit] = scaled_values
+
+                    # Calculate the sum of criteria for each scenario
+                    scaled_criteria_df['Total Score'] = scaled_criteria_df[selected_criteria].sum(axis=1)
+
+                    # Normalize the total scores between 1 and 10
+                    min_score = scaled_criteria_df['Total Score'].min()
+                    max_score = scaled_criteria_df['Total Score'].max()
+                    if max_score != min_score:
+                        scaled_criteria_df['Normalized Score'] = 1 + 9 * (scaled_criteria_df['Total Score'] - min_score) / (max_score - min_score)
                     else:
-                        return 'red'
+                        scaled_criteria_df['Normalized Score'] = 5  # Assign a neutral score if all scores are equal
 
-                scaled_criteria_df['Color'] = scaled_criteria_df['Normalized Score'].apply(get_color)
+                    # Assign colors based on normalized scores
+                    def get_color(score):
+                        if score >= 7:
+                            return 'green'
+                        elif score >= 5:
+                            return 'yellow'
+                        else:
+                            return 'red'
 
-                # Rank the scenarios based on Normalized Score
-                scaled_criteria_df['Rank'] = scaled_criteria_df['Normalized Score'].rank(method='min', ascending=False).astype(int)
+                    scaled_criteria_df['Color'] = scaled_criteria_df['Normalized Score'].apply(get_color)
 
-                st.write("### Normalized Results (All Criteria Scaled 1-10)")
-                st.dataframe(scaled_criteria_df.round(2))
+                    # Rank the scenarios based on Normalized Score
+                    scaled_criteria_df['Rank'] = scaled_criteria_df['Normalized Score'].rank(method='min', ascending=False).astype(int)
 
-                # Remove the redundant "Scaled Criteria Table"
-                # st.write("### Scaled Criteria Table")
-                # st.dataframe(scaled_criteria_df.round(2))
+                    st.write("### Normalized Results (All Criteria Scaled 1-10)")
+                    st.dataframe(scaled_criteria_df.round(2))
 
-                # Visualize the normalized scores with color gradients using Altair
-                chart = alt.Chart(scaled_criteria_df).mark_bar().encode(
-                    x=alt.X('Scenario:N', sort='-y'),
-                    y='Normalized Score:Q',
-                    color=alt.Color('Normalized Score:Q',
-                                    scale=alt.Scale(
-                                        domain=[1, 5, 10],
-                                        range=['red', 'yellow', 'green']
-                                    ),
-                                    legend=alt.Legend(title="Normalized Score"))
-                ).properties(
-                    width=700,
-                    height=400,
-                    title="Scenario Scores (Normalized 1-10)"
-                )
+                    # Visualize the normalized scores with color gradients using Altair
+                    chart = alt.Chart(scaled_criteria_df).mark_bar().encode(
+                        x=alt.X('Scenario:N', sort='-y'),
+                        y='Normalized Score:Q',
+                        color=alt.Color('Normalized Score:Q',
+                                        scale=alt.Scale(
+                                            domain=[1, 5, 10],
+                                            range=['red', 'yellow', 'green']
+                                        ),
+                                        legend=alt.Legend(title="Normalized Score"))
+                    ).properties(
+                        width=700,
+                        height=400,
+                        title="Scenario Scores (Normalized 1-10)"
+                    )
 
-                st.altair_chart(chart, use_container_width=True)
+                    st.altair_chart(chart, use_container_width=True)
 
-                # ----------------------- Enhanced Visualization -----------------------
+                    # ----------------------- Enhanced Visualization -----------------------
 
-                # Create a styled dataframe with ranking and color-coded cells
-                styled_display = scaled_criteria_df[['Scenario', 'Normalized Score', 'Rank']].copy()
-                styled_display = styled_display.sort_values('Rank')
+                    # Create a styled dataframe with ranking and color-coded cells
+                    styled_display = scaled_criteria_df[['Scenario', 'Normalized Score', 'Rank']].copy()
+                    styled_display = styled_display.sort_values('Rank')
 
-                # Apply color formatting based on 'Normalized Score'
-                def color_cell(score):
-                    if score >= 7:
-                        return 'background-color: green'
-                    elif score >= 5:
-                        return 'background-color: yellow'
-                    else:
-                        return 'background-color: red'
+                    # Apply color formatting based on 'Normalized Score'
+                    def color_cell(score):
+                        if score >= 7:
+                            return 'background-color: green'
+                        elif score >= 5:
+                            return 'background-color: yellow'
+                        else:
+                            return 'background-color: red'
 
-                # Style the 'Normalized Score' column
-                styled_display_style = styled_display.style.applymap(color_cell, subset=['Normalized Score'])
+                    # Style the 'Normalized Score' column
+                    styled_display_style = styled_display.style.applymap(color_cell, subset=['Normalized Score'])
 
-                st.write("### Ranked Scenarios with Gradient Colors")
-                st.dataframe(styled_display_style)
+                    st.write("### Ranked Scenarios with Gradient Colors")
+                    st.dataframe(styled_display_style)
 
 if __name__ == "__main__":
     main()
