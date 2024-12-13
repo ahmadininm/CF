@@ -140,14 +140,21 @@ def main():
                 else:
                     st.warning(f"Item '{item_name.strip()}' already exists.")
 
+    # Convert 'Item' to a categorical type to preserve order in the bar chart
+    # This should be done before mapping to emission factors
+    bau_data = st.session_state.bau_data
+    bau_data['Item'] = pd.Categorical(bau_data['Item'], categories=bau_data['Item'], ordered=True)
+    st.session_state.bau_data = bau_data
+
     # Update emission factors in BAU Data
-    st.session_state.bau_data["Emission Factor (kg CO₂e/unit)"] = st.session_state.bau_data["Item"].map(st.session_state.emission_factors).fillna(0)
+    # Ensure 'Emission Factor (kg CO₂e/unit)' is float
+    emission_factors_series = st.session_state.bau_data["Item"].map(st.session_state.emission_factors)
+    # Explicitly set the dtype to float
+    st.session_state.bau_data["Emission Factor (kg CO₂e/unit)"] = emission_factors_series.astype(float).fillna(0.0)
 
     # Calculate emissions for BAU
     st.session_state.bau_data["Daily Emissions (kg CO₂e)"] = st.session_state.bau_data["Daily Usage (Units)"] * st.session_state.bau_data["Emission Factor (kg CO₂e/unit)"]
     st.session_state.bau_data["Annual Emissions (kg CO₂e)"] = st.session_state.bau_data["Daily Emissions (kg CO₂e)"] * 365
-
-    # ----------------------- Ensure BAU Graph Maintains Input Order -----------------------
 
     # Reorder bau_data to ensure default items come first, followed by custom items
     default_items = [
@@ -158,13 +165,9 @@ def main():
         "Argon (m³/day)", 
         "Helium (m³/day)"
     ]
-    bau_data = st.session_state.bau_data
-    custom_items = bau_data[~bau_data["Item"].isin(default_items)]
-    bau_data = pd.concat([bau_data[bau_data["Item"].isin(default_items)], custom_items], ignore_index=True)
+    custom_items = st.session_state.bau_data[~st.session_state.bau_data["Item"].isin(default_items)]
+    bau_data = pd.concat([st.session_state.bau_data[st.session_state.bau_data["Item"].isin(default_items)], custom_items], ignore_index=True)
     st.session_state.bau_data = bau_data
-
-    # Convert 'Item' to a categorical type to preserve order in the bar chart
-    bau_data['Item'] = pd.Categorical(bau_data['Item'], categories=bau_data['Item'], ordered=True)
 
     # Display BAU summary
     st.write("### BAU Results")
@@ -395,7 +398,7 @@ def main():
             if 'results_df' in locals() and not results_df.empty:
                 criteria_df["Scenario"] = results_df["Scenario"].tolist()
             else:
-                criteria_df["Scenario"] = ["Scenario 1"]  # Default if no scenarios defined
+                criteria_df["Scenario"] = [f"Scenario {i+1}" for i in range(len(results_df))] if 'results_df' in locals() and not results_df.empty else ["Scenario 1"]
             for c in selected_criteria:
                 criteria_df[c] = 1
             st.session_state.criteria_df = criteria_df
