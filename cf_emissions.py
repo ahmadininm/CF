@@ -3,6 +3,7 @@ import streamlit as st
 import numpy as np
 import openai
 import json
+import altair as alt  # For advanced visualizations
 
 def main():
     # Set page configuration
@@ -362,15 +363,16 @@ You are an expert sustainability analyst. Based on the following scenario descri
 """
 
                 try:
-                    response = openai.Completion.create(
-                        engine="text-davinci-003",
-                        prompt=prompt,
+                    response = openai.ChatCompletion.create(
+                        model="gpt-3.5-turbo",
+                        messages=[
+                            {"role": "system", "content": "You are an expert sustainability analyst."},
+                            {"role": "user", "content": prompt}
+                        ],
                         max_tokens=150,
                         temperature=0.3,
-                        n=1,
-                        stop=None
                     )
-                    ai_output = response.choices[0].text.strip()
+                    ai_output = response.choices[0].message['content'].strip()
                     # Attempt to parse the JSON output
                     try:
                         scores = json.loads(ai_output)
@@ -475,6 +477,28 @@ You are an expert sustainability analyst. Based on the following scenario descri
                                 scaled_values = 1 + 9 * (values - min_val) / (max_val - min_val)
                             scaled_criteria_df[crit] = scaled_values
 
+                    # Calculate the sum of criteria for each scenario
+                    scaled_criteria_df['Total Score'] = scaled_criteria_df[selected_criteria].sum(axis=1)
+
+                    # Normalize the total scores between 1 and 10
+                    min_score = scaled_criteria_df['Total Score'].min()
+                    max_score = scaled_criteria_df['Total Score'].max()
+                    if max_score != min_score:
+                        scaled_criteria_df['Normalized Score'] = 1 + 9 * (scaled_criteria_df['Total Score'] - min_score) / (max_score - min_score)
+                    else:
+                        scaled_criteria_df['Normalized Score'] = 5  # Assign a neutral score if all scores are equal
+
+                    # Assign colors based on normalized scores
+                    def get_color(score):
+                        if score >= 7:
+                            return 'green'
+                        elif score >= 5:
+                            return 'yellow'
+                        else:
+                            return 'red'
+
+                    scaled_criteria_df['Color'] = scaled_criteria_df['Normalized Score'].apply(get_color)
+
                     st.write("### Normalized Results (All Criteria Scaled 1-10)")
                     st.dataframe(scaled_criteria_df.round(2))
 
@@ -483,6 +507,24 @@ You are an expert sustainability analyst. Based on the following scenario descri
 
                     st.write("### Scaled Criteria Table")
                     st.dataframe(scaled_results_df.round(2))
+
+                    # Visualize the normalized scores with color gradients using Altair
+                    chart = alt.Chart(scaled_criteria_df).mark_bar().encode(
+                        x=alt.X('Scenario:N', sort='-y'),
+                        y='Normalized Score:Q',
+                        color=alt.Color('Normalized Score:Q',
+                                        scale=alt.Scale(
+                                            domain=[1, 5, 10],
+                                            range=['red', 'yellow', 'green']
+                                        ),
+                                        legend=alt.Legend(title="Normalized Score"))
+                    ).properties(
+                        width=700,
+                        height=400,
+                        title="Scenario Scores (Normalized 1-10)"
+                    )
+
+                    st.altair_chart(chart, use_container_width=True)
 
 if __name__ == "__main__":
     main()
