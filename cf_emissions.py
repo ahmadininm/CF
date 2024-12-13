@@ -285,49 +285,51 @@ def main():
 
             st.write("Please assign values for each selected criterion to each scenario. Double-click a cell to edit. For (1-10) criteria, only enter values between 1 and 10.")
 
-            # Editable table for criteria values with input constraints
-            try:
-                edited_criteria_df = st.data_editor(
-                    criteria_df,
-                    use_container_width=True,
-                    key="criteria_editor",
-                    num_rows="dynamic",
-                    disabled=False,
-                    columns=[
-                        {"id": "Scenario", "name": "Scenario", "editable": False},
-                    ] + [
-                        {
-                            "id": c, 
-                            "name": c, 
-                            "type": "number", 
-                            "format": {"specifier": ".0f"},  # Ensures integer input
-                            "min": 1, 
-                            "max": 10
-                        } if c in scale_criteria else {"id": c, "name": c, "type": "number"}
-                        for c in selected_criteria
-                    ]
-                )
-            except AttributeError:
-                edited_criteria_df = st.experimental_data_editor(
-                    criteria_df,
-                    use_container_width=True,
-                    key="criteria_editor",
-                    num_rows="dynamic",
-                    disabled=False,
-                    columns=[
-                        {"id": "Scenario", "name": "Scenario", "editable": False},
-                    ] + [
-                        {
-                            "id": c, 
-                            "name": c, 
-                            "type": "number", 
-                            "format": {"specifier": ".0f"},  # Ensures integer input
-                            "min": 1, 
-                            "max": 10
-                        } if c in scale_criteria else {"id": c, "name": c, "type": "number"}
-                        for c in selected_criteria
-                    ]
-                )
+
+# Editable table for criteria values with input constraints
+try:
+    edited_criteria_df = st.data_editor(
+        criteria_df,
+        use_container_width=True,
+        key="criteria_editor",
+        num_rows="dynamic",
+        disabled=False,
+        columns=[
+            {"id": "Scenario", "name": "Scenario", "editable": False},
+        ] + [
+            {
+                "id": c, 
+                "name": c, 
+                "type": "number", 
+                "format": {"specifier": ".0f"},  # Ensures integer input
+                "min_value": 1, 
+                "max_value": 10
+            } if c in scale_criteria else {"id": c, "name": c, "type": "number"}
+            for c in selected_criteria
+        ]
+    )
+except AttributeError:
+    edited_criteria_df = st.experimental_data_editor(
+        criteria_df,
+        use_container_width=True,
+        key="criteria_editor",
+        num_rows="dynamic",
+        disabled=False,
+        columns=[
+            {"id": "Scenario", "name": "Scenario", "editable": False},
+        ] + [
+            {
+                "id": c, 
+                "name": c, 
+                "type": "number", 
+                "format": {"specifier": ".0f"},  # Ensures integer input
+                "min_value": 1, 
+                "max_value": 10
+            } if c in scale_criteria else {"id": c, "name": c, "type": "number"}
+            for c in selected_criteria
+        ]
+    )
+
 
             # ----------------------- AI-Based Scoring -----------------------
 
