@@ -4,6 +4,8 @@ import numpy as np
 import openai
 import json
 import altair as alt  # For advanced visualizations
+streamlit cache clear
+
 
 # Import OpenAIError correctly for SDK <=0.28
 try:
