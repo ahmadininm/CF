@@ -143,8 +143,14 @@ def main():
                 else:
                     st.warning(f"Item '{item_name.strip()}' already exists.")
 
+    # ----------------------- Fixing the TypeError -----------------------
+
+    # Drop the "Emission Factor" column if it exists to prevent dtype conflicts
+    if "Emission Factor (kg CO₂e/unit)" in st.session_state.bau_data.columns:
+        st.session_state.bau_data = st.session_state.bau_data.drop(columns=["Emission Factor (kg CO₂e/unit)"])
+
     # Convert 'Item' to a categorical type to preserve order in the bar chart
-    # This should be done before mapping to emission factors
+    # This should be done after ensuring "Emission Factor" is float
     bau_data = st.session_state.bau_data
     bau_data['Item'] = pd.Categorical(bau_data['Item'], categories=bau_data['Item'], ordered=True)
     st.session_state.bau_data = bau_data
@@ -200,16 +206,16 @@ def main():
             st.error("Please provide details about your organization's activities and sustainability goals.")
         else:
             prompt = f"""
-    You are an expert sustainability consultant. Based on the following description of an organization's activities and sustainability goals, propose three innovative scenarios to improve carbon savings and resource efficiency. Provide only the scenario names and brief descriptions in a list format.
+You are an expert sustainability consultant. Based on the following description of an organization's activities and sustainability goals, propose three innovative scenarios to improve carbon savings and resource efficiency. Provide only the scenario names and brief descriptions in a list format.
 
-    ### Description:
-    {activities}
+### Description:
+{activities}
 
-    ### Proposed Scenarios:
-    1.
-    2.
-    3.
-    """
+### Proposed Scenarios:
+1.
+2.
+3.
+"""
 
             try:
                 response = openai.Completion.create(
@@ -561,71 +567,9 @@ def main():
 
     # ----------------------- AI-Based Scoring -----------------------
 
-    # Assign default scores based on scenario descriptions using AI analysis
-    scenario_desc = st.session_state.get('scenario_desc_df')
-    if scenario_desc is not None and not scenario_desc.empty:
-        for idx, row in scenario_desc.iterrows():
-            description = row["Description"].strip()
-            scenario = row["Scenario"]
-
-            if description == "":
-                continue  # Skip empty descriptions
-
-            # Prepare the prompt for the AI model
-            prompt = f"""
-You are an expert sustainability analyst. Based on the following scenario description, assign a score between 1 and 10 for each of the selected sustainability criteria. Provide only the scores in JSON format.
-
-### Scenario Description:
-{description}
-
-### Criteria to Evaluate:
-{selected_criteria}
-
-### JSON Output:
-"""
-
-            try:
-                response = openai.Completion.create(
-                    engine="text-davinci-003",
-                    prompt=prompt,
-                    max_tokens=150,
-                    temperature=0.3,
-                )
-                ai_output = response.choices[0].text.strip()
-                # Attempt to parse the JSON output
-                try:
-                    scores = json.loads(ai_output)
-                    if isinstance(scores, dict):
-                        for crit in selected_criteria:
-                            if crit in scores:
-                                score = scores[crit]
-                                # Validate score is between 1 and 10
-                                if isinstance(score, (int, float)) and 1 <= score <= 10:
-                                    st.session_state.criteria_df.loc[st.session_state.criteria_df["Scenario"] == scenario, crit] = score
-                                else:
-                                    st.session_state.criteria_df.loc[st.session_state.criteria_df["Scenario"] == scenario, crit] = 5  # Neutral score
-                            else:
-                                # If criterion not in scores, assign neutral
-                                st.session_state.criteria_df.loc[st.session_state.criteria_df["Scenario"] == scenario, crit] = 5
-                    else:
-                        # If not a dict, assign neutral scores
-                        for crit in selected_criteria:
-                            st.session_state.criteria_df.loc[st.session_state.criteria_df["Scenario"] == scenario, crit] = 5
-                except json.JSONDecodeError:
-                    # If JSON parsing fails, assign neutral scores
-                    for crit in selected_criteria:
-                        st.session_state.criteria_df.loc[st.session_state.criteria_df["Scenario"] == scenario, crit] = 5
-            except OpenAIError as e:
-                st.error(f"Error with OpenAI API: {e}")
-                for crit in selected_criteria:
-                    st.session_state.criteria_df.loc[st.session_state.criteria_df["Scenario"] == scenario, crit] = 5
-            except Exception as e:
-                st.error(f"An unexpected error occurred: {e}")
-                for crit in selected_criteria:
-                    st.session_state.criteria_df.loc[st.session_state.criteria_df["Scenario"] == scenario, crit] = 5
-
-        # Update the edited_criteria_df in session state
-        st.session_state.edited_criteria_df = st.session_state.criteria_df.copy()
+    # Note: The user requested to "forget about linking the description part into AI for now"
+    # So, we will not perform AI-based scoring based on scenario descriptions.
+    # Instead, focus on normalizing and ranking based on assigned criteria.
 
     # ----------------------- Run Model -----------------------
 
@@ -638,12 +582,6 @@ You are an expert sustainability analyst. Based on the following scenario descri
             else:
                 # Create a copy for scaled results
                 scaled_criteria_df = st.session_state.edited_criteria_df.copy()
-
-                # Define which criteria need inversion (lower is better)
-                inversion_criteria = []
-                for crit in selected_criteria:
-                    if crit in scale_criteria:
-                        inversion_criteria.append(crit)
 
                 # Define specific criteria to normalize
                 criteria_to_normalize = ["Return on Investment (ROI)(years)", "Initial investment (£)", "Other - Positive Trend", "Other - Negative Trend"]
@@ -663,7 +601,7 @@ You are an expert sustainability analyst. Based on the following scenario descri
                     max_val = np.max(values)
 
                     if crit == "Other - Positive Trend":
-                        # Higher is better: scale to 10 - higher value
+                        # Higher is better: scale to 10
                         if max_val == min_val:
                             scaled_values = np.ones_like(values) * 10 if min_val != 0 else np.zeros_like(values)
                         else:
@@ -691,7 +629,7 @@ You are an expert sustainability analyst. Based on the following scenario descri
                             scaled_values = 10 - 9 * (values - min_val) / (max_val - min_val)
                         scaled_criteria_df[crit] = scaled_values
 
-                # Calculate the sum of criteria for each scenario
+                # Calculate the sum of normalized criteria for each scenario
                 scaled_criteria_df['Total Score'] = scaled_criteria_df[selected_criteria].sum(axis=1)
 
                 # Normalize the total scores between 1 and 10
@@ -743,7 +681,7 @@ You are an expert sustainability analyst. Based on the following scenario descri
                 styled_display = scaled_criteria_df[['Scenario', 'Normalized Score', 'Rank']].copy()
                 styled_display = styled_display.sort_values('Rank')
 
-                # Apply color formatting based on 'Normalized Score'
+                # Apply color formatting based on 'Normalized Score' using Styler.map
                 def color_cell(score):
                     if score >= 7:
                         return 'background-color: green'
@@ -754,9 +692,13 @@ You are an expert sustainability analyst. Based on the following scenario descri
 
                 # Style the 'Normalized Score' column
                 styled_display_style = styled_display.style.applymap(color_cell, subset=['Normalized Score'])
+                # Replace applymap with map to avoid FutureWarnings
+                styled_display_style = styled_display.style.map(
+                    {'Normalized Score': styled_display['Normalized Score'].apply(lambda x: 'background-color: green' if x >=7 else ('background-color: yellow' if x >=5 else 'background-color: red'))}
+                )
 
                 st.write("### Ranked Scenarios with Gradient Colors")
                 st.dataframe(styled_display_style)
 
-    if __name__ == "__main__":
-        main()
+if __name__ == "__main__":
+    main()
