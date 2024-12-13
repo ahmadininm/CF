@@ -279,7 +279,7 @@ def main():
         "Impact on Product Quality", 
         "Customer and Stakeholder Alignment",
         "Priority for our organisation",
-        "Other - Negative Trend"  # Including 'Other - Negative Trend' for inversion
+        "Other - Negative Trend"  # For inversion
     }
 
     # Criteria options with brief, color-coded descriptions for the 1-10 scale criteria
@@ -371,8 +371,7 @@ def main():
     for crit in selected_criteria:
         st.markdown(f"**{crit}:** {criteria_options[crit]}", unsafe_allow_html=True)
 
-    # Define column-based criteria
-    # Including 'Other - Negative Trend' in scale_criteria for inversion
+    # Define scale-based criteria globally, including 'Other - Negative Trend'
     scale_criteria = {
         "Technical Feasibility", 
         "Supplier Reliability and Technology Readiness", 
@@ -393,7 +392,10 @@ def main():
         # Initialize or update criteria_df in session state
         if st.session_state.criteria_df.empty:
             criteria_df = pd.DataFrame(columns=["Scenario"] + selected_criteria)
-            criteria_df["Scenario"] = results_df["Scenario"].tolist() if 'results_df' in locals() else []
+            if 'results_df' in locals() and not results_df.empty:
+                criteria_df["Scenario"] = results_df["Scenario"].tolist()
+            else:
+                criteria_df["Scenario"] = ["Scenario 1"]  # Default if no scenarios defined
             for c in selected_criteria:
                 criteria_df[c] = 1
             st.session_state.criteria_df = criteria_df
@@ -455,9 +457,6 @@ def main():
 
         # Update session state with edited criteria
         st.session_state.criteria_df = edited_criteria_df
-
-
-
 
     # ----------------------- AI-Based Scoring -----------------------
 
@@ -647,5 +646,5 @@ You are an expert sustainability analyst. Based on the following scenario descri
                 st.write("### Ranked Scenarios with Gradient Colors")
                 st.dataframe(styled_display_style)
 
-    if __name__ == "__main__":
-        main()
+if __name__ == "__main__":
+    main()
