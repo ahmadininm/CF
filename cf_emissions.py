@@ -499,15 +499,14 @@ You are an expert sustainability analyst. Based on the following scenario descri
 
                     scaled_criteria_df['Color'] = scaled_criteria_df['Normalized Score'].apply(get_color)
 
-                    # Rank the scenarios based on Normalized Score
-                    scaled_criteria_df['Rank'] = scaled_criteria_df['Normalized Score'].rank(method='min', ascending=False).astype(int)
-
                     st.write("### Normalized Results (All Criteria Scaled 1-10)")
                     st.dataframe(scaled_criteria_df.round(2))
 
-                    # Remove the redundant "Scaled Criteria Table"
-                    # st.write("### Scaled Criteria Table")
-                    # st.dataframe(scaled_criteria_df.round(2))
+                    # Create a table with the same structure but scaled values
+                    scaled_results_df = scaled_criteria_df.copy()
+
+                    st.write("### Scaled Criteria Table")
+                    st.dataframe(scaled_results_df.round(2))
 
                     # Visualize the normalized scores with color gradients using Altair
                     chart = alt.Chart(scaled_criteria_df).mark_bar().encode(
@@ -527,48 +526,5 @@ You are an expert sustainability analyst. Based on the following scenario descri
 
                     st.altair_chart(chart, use_container_width=True)
 
-                    # ----------------------- Enhanced Visualization -----------------------
-
-                    # Create a table with color-coded cells and ranking
-                    styled_df = scaled_criteria_df.copy()
-                    styled_df['Normalized Score'] = styled_df['Normalized Score'].round(2)
-                    styled_df = styled_df.sort_values('Rank')
-
-                    # Define a color scale for the normalized scores
-                    def color_score(score):
-                        if score >= 7:
-                            return '#00FF00'  # Green
-                        elif score >= 5:
-                            return '#FFFF00'  # Yellow
-                        else:
-                            return '#FF0000'  # Red
-
-                    # Apply the color to each row based on the normalized score
-                    colors = scaled_criteria_df['Normalized Score'].apply(color_score).tolist()
-
-                    # Display the styled dataframe
-                    st.write("### Ranked Scenarios with Gradient Colors")
-                    styled_display = scaled_criteria_df[['Scenario', 'Normalized Score', 'Rank']].copy()
-                    styled_display = styled_display.sort_values('Normalized Score', ascending=False)
-                    styled_display = styled_display.reset_index(drop=True)
-                    
-                    # Create an Altair table with colored cells
-                    table_chart = alt.Chart(styled_display).mark_rect().encode(
-                        y=alt.Y('Scenario:N', sort='-x'),
-                        x=alt.X('Normalized Score:Q'),
-                        color=alt.Color('Normalized Score:Q',
-                                        scale=alt.Scale(
-                                            domain=[1, 5, 10],
-                                            range=['red', 'yellow', 'green']
-                                        ),
-                                        legend=alt.Legend(title="Normalized Score"))
-                    ).properties(
-                        width=700,
-                        height=50 * len(styled_display),
-                        title="Ranked Scenarios"
-                    )
-
-                    st.altair_chart(table_chart, use_container_width=True)
-
-    if __name__ == "__main__":
-        main()
+if __name__ == "__main__":
+    main()
