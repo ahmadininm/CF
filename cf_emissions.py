@@ -65,6 +65,23 @@ def clear_cache():
         st.cache_resource.clear()
         st.experimental_rerun()
 
+def chat_gpt(prompt):
+    """Function to interact with OpenAI's ChatCompletion API."""
+    try:
+        response = openai.ChatCompletion.create(
+            model="gpt-3.5-turbo",  # Change to "gpt-4" if you have access
+            messages=[{"role": "user", "content": prompt}]
+        )
+        return response['choices'][0]['message']['content'].strip()
+    except OpenAIError as e:
+        logger.error(f"OpenAI API Error: {e}")
+        st.error(f"OpenAI API Error: {e}")
+        return None
+    except Exception as e:
+        logger.error(f"Unexpected Error: {e}")
+        st.error(f"An unexpected error occurred: {e}")
+        return None
+
 def main():
     # Initialize session state
     initialize_session_state()
@@ -220,19 +237,8 @@ You are an expert sustainability consultant. Based on the following description 
 3.
 """
 
-            try:
-                response = openai.ChatCompletion.create(
-                    model="gpt-4",
-                    messages=[
-                        {"role": "system", "content": "You are an expert sustainability consultant."},
-                        {"role": "user", "content": prompt}
-                    ],
-                    max_tokens=300,
-                    temperature=0.7,
-                )
-                ai_output = response['choices'][0]['message']['content'].strip()
-                logger.info(f"AI Output: {ai_output}")
-
+            ai_output = chat_gpt(prompt)
+            if ai_output:
                 # Parse the AI output into a list of scenarios
                 scenarios = []
                 for line in ai_output.split('\n'):
@@ -246,13 +252,6 @@ You are an expert sustainability consultant. Based on the following description 
                     st.session_state.proposed_scenarios = scenarios[:3]
                     st.session_state.ai_proposed = True
                     st.success("Proposed scenarios generated successfully!")
-            
-            except OpenAIError as e:
-                logger.error(f"OpenAI API Error: {e}")
-                st.error(f"OpenAI API Error: {e}")
-            except Exception as e:
-                logger.error(f"Unexpected Error: {e}")
-                st.error(f"An unexpected error occurred: {e}")
 
     # Display Proposed Scenarios
     if st.session_state.proposed_scenarios:
@@ -315,10 +314,10 @@ You are an expert sustainability consultant. Based on the following description 
 
     # Editable table for scenario descriptions
     try:
-        edited_scenario_desc_df = st.data_editor(st.session_state.scenario_desc_df, use_container_width=True, key="scenario_desc_editor", num_rows="dynamic")
+        edited_scenario_desc_df = st.data_editor(st.session_state.scenario_desc_df, use_container_width=True, key="scenario_desc_editor", num_rows="fixed")
     except AttributeError:
         # Fallback for older Streamlit versions
-        edited_scenario_desc_df = st.experimental_data_editor(st.session_state.scenario_desc_df, use_container_width=True, key="scenario_desc_editor", num_rows="dynamic")
+        edited_scenario_desc_df = st.experimental_data_editor(st.session_state.scenario_desc_df, use_container_width=True, key="scenario_desc_editor", num_rows="fixed")
 
     # Save edited scenario descriptions to session state
     st.session_state['scenario_desc_df'] = edited_scenario_desc_df
@@ -412,6 +411,8 @@ You are an expert sustainability consultant. Based on the following description 
                     # Add the new "Other" criteria to the criteria_options
                     criteria_options[full_crit_name] = other_crit_desc.strip() if other_crit_desc.strip() != "" else "No description provided."
                     # Add to dynamic_other_criteria for persistence
+                    if 'dynamic_other_criteria' not in st.session_state:
+                        st.session_state.dynamic_other_criteria = []
                     st.session_state.dynamic_other_criteria.append(full_crit_name)
                 else:
                     st.warning(f"Criterion '{full_crit_name}' already exists.")
@@ -437,6 +438,8 @@ You are an expert sustainability consultant. Based on the following description 
             full_crit_name = new_other_name.strip()
             if full_crit_name not in criteria_options:
                 criteria_options[full_crit_name] = new_other_desc.strip() if new_other_desc.strip() != "" else "No description provided."
+                if 'dynamic_other_criteria' not in st.session_state:
+                    st.session_state.dynamic_other_criteria = []
                 st.session_state.dynamic_other_criteria.append(full_crit_name)
                 st.success(f"Added new criterion '{full_crit_name}'.")
             else:
@@ -544,14 +547,14 @@ You are an expert sustainability consultant. Based on the following description 
     # ----------------------- Run Model -----------------------
 
     # Only proceed if criteria were selected and edited_criteria_df is defined
-    if selected_criteria and 'edited_criteria_df' in st.session_state and not st.session_state.edited_criteria_df.empty:
+    if selected_criteria and 'criteria_df' in st.session_state and not st.session_state.criteria_df.empty:
         if st.button("Run Model"):
             # Check if all required values are filled
-            if st.session_state.edited_criteria_df.isnull().values.any():
+            if st.session_state.criteria_df.isnull().values.any():
                 st.error("Please ensure all criteria values are filled.")
             else:
                 # Create a copy for scaled results
-                scaled_criteria_df = st.session_state.edited_criteria_df.copy()
+                scaled_criteria_df = st.session_state.criteria_df.copy()
 
                 # Define specific criteria to normalize
                 criteria_to_normalize = ["Return on Investment (ROI)(years)", "Initial investment (£)", "Other - Positive Trend", "Other - Negative Trend"]
@@ -610,16 +613,9 @@ You are an expert sustainability consultant. Based on the following description 
                 else:
                     scaled_criteria_df['Normalized Score'] = 5  # Assign a neutral score if all scores are equal
 
-                # Assign colors based on normalized scores
-                def get_color(score):
-                    if score >= 7:
-                        return 'green'
-                    elif score >= 5:
-                        return 'yellow'
-                    else:
-                        return 'red'
-
-                scaled_criteria_df['Color'] = scaled_criteria_df['Normalized Score'].apply(get_color)
+                # Calculate CO₂ Savings
+                scaled_criteria_df['CO₂ Saving (kg CO₂e/year)'] = total_annual_bau - (scaled_criteria_df['Total Score'] - scaled_criteria_df['Normalized Score'])
+                scaled_criteria_df['CO₂ Saving (%)'] = (scaled_criteria_df['CO₂ Saving (kg CO₂e/year)'] / total_annual_bau * 100) if total_annual_bau != 0 else 0
 
                 # Rank the scenarios based on Total Score
                 scaled_criteria_df['Rank'] = scaled_criteria_df['Total Score'].rank(method='min', ascending=False).astype(int)
@@ -653,5 +649,5 @@ You are an expert sustainability consultant. Based on the following description 
                 st.write("### Ranked Scenarios with Gradient Colors")
                 st.dataframe(styled_display_style)
 
-if __name__ == "__main__":
-    main()
+    if __name__ == "__main__":
+        main()
