@@ -169,7 +169,7 @@ def main():
     st.session_state.bau_data["Daily Emissions (kg CO₂e)"] = st.session_state.bau_data["Daily Usage (Units)"] * st.session_state.bau_data["Emission Factor (kg CO₂e/unit)"]
     st.session_state.bau_data["Annual Emissions (kg CO₂e)"] = st.session_state.bau_data["Daily Emissions (kg CO₂e)"] * 365
 
-    # Reorder bau_data to ensure default items come first, followed by custom items
+    # **Preserve Input Order**
     default_items = [
         "Gas (kWh/day)", 
         "Electricity (kWh/day)", 
@@ -178,20 +178,23 @@ def main():
         "Argon (m³/day)", 
         "Helium (m³/day)"
     ]
-    custom_items = st.session_state.bau_data[~st.session_state.bau_data["Item"].isin(default_items)]
-    bau_data = pd.concat([st.session_state.bau_data[st.session_state.bau_data["Item"].isin(default_items)], custom_items], ignore_index=True)
-    st.session_state.bau_data = bau_data
+    # Separate default and custom items
+    default_bau = st.session_state.bau_data[st.session_state.bau_data["Item"].isin(default_items)]
+    custom_bau = st.session_state.bau_data[~st.session_state.bau_data["Item"].isin(default_items)]
+    # Concatenate to maintain order: defaults first, then customs
+    bau_data_ordered = pd.concat([default_bau, custom_bau], ignore_index=True)
+    st.session_state.bau_data_ordered = bau_data_ordered  # Store ordered BAU data
 
     # Display BAU summary
     st.write("### BAU Results")
-    total_daily_bau = bau_data['Daily Emissions (kg CO₂e)'].sum()
-    total_annual_bau = bau_data['Annual Emissions (kg CO₂e)'].sum()
+    total_daily_bau = bau_data_ordered['Daily Emissions (kg CO₂e)'].sum()
+    total_annual_bau = bau_data_ordered['Annual Emissions (kg CO₂e)'].sum()
 
     st.write(f"**Total Daily Emissions (BAU):** {total_daily_bau:.2f} kg CO₂e/day")
     st.write(f"**Total Annual Emissions (BAU):** {total_annual_bau:.2f} kg CO₂e/year")
 
     # Visualize BAU emissions with preserved order
-    st.bar_chart(bau_data.set_index("Item")["Daily Emissions (kg CO₂e)"], use_container_width=True)
+    st.bar_chart(bau_data_ordered.set_index("Item")["Daily Emissions (kg CO₂e)"], use_container_width=True)
 
     # ----------------------- Propose Scenarios Using AI -----------------------
 
@@ -249,14 +252,14 @@ You are an expert sustainability consultant. Based on the following description 
 
     st.subheader("Scenario Planning (Editable Table)")
 
-    # Determine default scenarios (proposed by AI) or allow user to input their own
+    # Determine scenarios: either AI-proposed or user-defined
     if st.session_state.proposed_scenarios and st.session_state.ai_proposed:
-        proposed = st.radio(
+        use_ai_scenarios = st.radio(
             "Would you like to use the AI-proposed scenarios?",
             ("Yes", "No"),
-            key="use_proposed_scenarios_radio"
+            key="use_ai_scenarios_radio"
         )
-        if proposed == "Yes":
+        if use_ai_scenarios == "Yes":
             num_scenarios = len(st.session_state.proposed_scenarios)
             scenario_names = [f"Scenario {i+1}" for i in range(num_scenarios)]
             scenario_descriptions = st.session_state.proposed_scenarios
@@ -264,21 +267,17 @@ You are an expert sustainability consultant. Based on the following description 
                 "Scenario": scenario_names,
                 "Description": scenario_descriptions
             })
-            st.session_state.ai_proposed = False  # Reset after acceptance
+            st.session_state.ai_proposed = False  # Reset flag after acceptance
         else:
             num_scenarios = st.number_input(
                 "How many scenarios do you want to add?",
                 min_value=1,
                 step=1,
                 value=1,
-                key="num_scenarios_input_2"
+                key="num_scenarios_input_user"
             )
-            # Create a DataFrame for scenario descriptions
-            scenario_desc_columns = ["Scenario", "Description"]
             scenario_desc_data = [[f"Scenario {i+1}", ""] for i in range(int(num_scenarios))]
-            scenario_desc_df = pd.DataFrame(scenario_desc_data, columns=scenario_desc_columns)
-            st.session_state.scenario_desc_df = scenario_desc_df
-            st.session_state.proposed_scenarios = []  # Clear proposed scenarios
+            st.session_state.scenario_desc_df = pd.DataFrame(scenario_desc_data, columns=["Scenario", "Description"])
 
     else:
         num_scenarios = st.number_input(
@@ -286,13 +285,10 @@ You are an expert sustainability consultant. Based on the following description 
             min_value=1,
             step=1,
             value=1,
-            key="num_scenarios_input_2"
+            key="num_scenarios_input_user"
         )
-        # Create a DataFrame for scenario descriptions
-        scenario_desc_columns = ["Scenario", "Description"]
         scenario_desc_data = [[f"Scenario {i+1}", ""] for i in range(int(num_scenarios))]
-        scenario_desc_df = pd.DataFrame(scenario_desc_data, columns=scenario_desc_columns)
-        st.session_state.scenario_desc_df = scenario_desc_df
+        st.session_state.scenario_desc_df = pd.DataFrame(scenario_desc_data, columns=["Scenario", "Description"])
 
     st.write("Please describe each scenario. Double-click a cell to edit the description.")
 
@@ -327,10 +323,17 @@ You are an expert sustainability consultant. Based on the following description 
 
     # Create a DataFrame with one column per scenario
     scenario_columns = ["Item"] + [f"{row['Scenario']} (%)" for index, row in st.session_state.scenario_desc_df.iterrows()]
-    scenario_data = [[item] + [100.0]*len(st.session_state.scenario_desc_df) for item in bau_data["Item"]]
+    scenario_data = [[item] + [100.0 for _ in range(len(st.session_state.scenario_desc_df))] for item in bau_data_ordered["Item"]]
     scenario_df = pd.DataFrame(scenario_data, columns=scenario_columns)
 
-    st.write("Please adjust the percentages for each scenario. Double-click a cell to edit the value.")
+    st.write("""
+### Assign Usage Percentages to Each Scenario
+
+**Instructions:**
+- The percentage represents usage relative to BAU.
+- For example, **90%** means the item is at **90%** of its BAU usage, thereby achieving a **10%** reduction.
+- Ensure that the sum of percentages across all scenarios for each item does not exceed **100%**.
+""")
 
     # Editable table for scenario percentages
     try:
@@ -342,12 +345,15 @@ You are an expert sustainability consultant. Based on the following description 
             disabled=False,
             column_config={
                 "Item": st.column_config.TextColumn(label="Item", disabled=True),
-                **{f"{row['Scenario']} (%)": st.column_config.NumberColumn(
-                    label=f"{row['Scenario']} (%)", 
-                    min_value=0.0, 
-                    max_value=100.0, 
-                    format="%.1f"
-                ) for index, row in st.session_state.scenario_desc_df.iterrows()}
+                **{
+                    f"{row['Scenario']} (%)": st.column_config.NumberColumn(
+                        label=f"{row['Scenario']} (%)",
+                        min_value=0.0,
+                        max_value=100.0,
+                        format="%.1f",
+                        step=0.1
+                    ) for index, row in st.session_state.scenario_desc_df.iterrows()
+                }
             }
         )
     except TypeError as e:
@@ -371,6 +377,16 @@ You are an expert sustainability consultant. Based on the following description 
         edited_scenario_df[col] = pd.to_numeric(edited_scenario_df[col], errors='coerce').fillna(100.0)
         # Enforce percentage limits
         edited_scenario_df[col] = edited_scenario_df[col].clip(lower=0.0, upper=100.0)
+
+    # **Validate that sum of percentages per item does not exceed 100%**
+    def validate_percentages(df):
+        sum_per_item = df.iloc[:, 1:].sum(axis=1)
+        if any(sum_per_item > 100.0):
+            return False
+        return True
+
+    if not validate_percentages(edited_scenario_df):
+        st.error("The sum of percentages for one or more items exceeds 100%. Please adjust the values accordingly.")
 
     # ----------------------- Additional Criteria -----------------------
 
@@ -636,8 +652,8 @@ You are an expert sustainability consultant. Based on the following description 
                 # Rank the scenarios based on Total Score
                 scaled_criteria_df['Rank'] = scaled_criteria_df['Total Score'].rank(method='min', ascending=False).astype(int)
 
-                # Calculate Scenario Emissions based on percentages
-                # First, ensure that scenario_percent_df exists
+                # **Calculate Scenario Emissions based on percentages**
+                # Ensure that 'scenario_percent_df' exists
                 if 'scenario_percent_df' in st.session_state:
                     scenario_percent_df = st.session_state['scenario_percent_df']
                 else:
@@ -647,7 +663,7 @@ You are an expert sustainability consultant. Based on the following description 
                 # Calculate emissions for each scenario
                 # Assuming 'Daily Emissions (kg CO₂e)' is the BAU daily emissions
                 # Multiply by (percentage / 100) to get scenario emissions
-                bau_daily_emissions = st.session_state.bau_data.set_index('Item')['Daily Emissions (kg CO₂e)']
+                bau_daily_emissions = st.session_state.bau_data_ordered.set_index('Item')['Daily Emissions (kg CO₂e)']
 
                 # Initialize a DataFrame to hold scenario emissions
                 scenario_emissions = pd.DataFrame(index=bau_daily_emissions.index)
@@ -659,7 +675,7 @@ You are an expert sustainability consultant. Based on the following description 
                 scenario_annual_emissions = scenario_emissions.sum() * 365  # Assuming daily usage
 
                 # Calculate CO₂ Savings
-                total_annual_bau = st.session_state.bau_data['Annual Emissions (kg CO₂e)'].sum()
+                total_annual_bau = st.session_state.bau_data_ordered['Annual Emissions (kg CO₂e)'].sum()
                 co2_saving_percentage = ((total_annual_bau - scenario_annual_emissions) / total_annual_bau * 100) if total_annual_bau != 0 else 0
 
                 # Add CO₂ Savings to scaled_criteria_df
@@ -670,9 +686,16 @@ You are an expert sustainability consultant. Based on the following description 
                 st.write("### Scenario Results")
                 st.dataframe(scaled_criteria_df.round(2))
 
-                # Display CO₂ Savings Graph
+                # **Display CO₂ Savings Graph**
                 st.subheader("CO₂ Savings Compared to BAU (%)")
-                st.bar_chart(co2_saving_percentage, use_container_width=True)
+                co2_saving_df = pd.DataFrame({
+                    "Scenario": scenario_annual_emissions.index,
+                    "CO₂ Saving (%)": co2_saving_percentage.values
+                })
+                co2_saving_df = co2_saving_df.reset_index(drop=True)
+                co2_saving_df.set_index("Scenario", inplace=True)
+
+                st.bar_chart(co2_saving_df["CO₂ Saving (%)"], use_container_width=True)
 
                 # Option to download scenario results as CSV
                 st.download_button(
@@ -696,6 +719,13 @@ You are an expert sustainability consultant. Based on the following description 
 
                 st.write("### Ranked Scenarios with Gradient Colors")
                 st.dataframe(styled_display_style)
+
+                # ----------------------- Validate and Alert -----------------------
+
+                # Optionally, provide alerts based on ranking or savings
+                top_scenario = scaled_criteria_df.loc[scaled_criteria_df['Rank'] == 1, 'Scenario'].values
+                if len(top_scenario) > 0:
+                    st.success(f"The top-ranked scenario is **{top_scenario[0]}** with the highest carbon savings.")
 
 if __name__ == "__main__":
     main()
