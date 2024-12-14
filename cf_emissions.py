@@ -4,13 +4,8 @@ import numpy as np
 import openai
 import json
 import altair as alt  # For advanced visualizations
-import logging
 
-# Set up logging
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
-
-# Initialize OpenAI API (Ensure you have the latest OpenAI SDK installed)
+# Import OpenAIError correctly for SDK <=0.28
 try:
     from openai.error import OpenAIError
 except ImportError:
@@ -58,16 +53,6 @@ def initialize_session_state():
     
     if 'proposed_scenarios' not in st.session_state:
         st.session_state.proposed_scenarios = []
-    
-    if 'ai_proposed' not in st.session_state:
-        st.session_state.ai_proposed = False
-
-def clear_cache():
-    """Clear Streamlit cache and rerun the app."""
-    if st.button("Clear Cache"):
-        st.cache_data.clear()
-        st.cache_resource.clear()
-        st.experimental_rerun()
 
 def main():
     # Initialize session state
@@ -79,9 +64,6 @@ def main():
     # Main Title and Description
     st.title("Sustainability Decision Assistant")
     st.write("*A tool to prioritize scenarios for carbon savings and resource efficiency, enabling data-driven sustainable decisions.*")
-
-    # Add Cache Clearing Button
-    clear_cache()
 
     # Debugging: Display Streamlit and OpenAI package versions
     try:
@@ -161,14 +143,8 @@ def main():
                 else:
                     st.warning(f"Item '{item_name.strip()}' already exists.")
 
-    # ----------------------- Fixing the TypeError -----------------------
-
-    # Drop the "Emission Factor (kg CO₂e/unit)" column if it exists to prevent dtype conflicts
-    if "Emission Factor (kg CO₂e/unit)" in st.session_state.bau_data.columns:
-        st.session_state.bau_data = st.session_state.bau_data.drop(columns=["Emission Factor (kg CO₂e/unit)"])
-
     # Convert 'Item' to a categorical type to preserve order in the bar chart
-    # This should be done after ensuring "Emission Factor" is float
+    # This should be done before mapping to emission factors
     bau_data = st.session_state.bau_data
     bau_data['Item'] = pd.Categorical(bau_data['Item'], categories=bau_data['Item'], ordered=True)
     st.session_state.bau_data = bau_data
@@ -224,28 +200,25 @@ def main():
             st.error("Please provide details about your organization's activities and sustainability goals.")
         else:
             prompt = f"""
-You are an expert sustainability consultant. Based on the following description of an organization's activities and sustainability goals, propose three innovative scenarios to improve carbon savings and resource efficiency. Provide only the scenario names and brief descriptions in a list format.
+    You are an expert sustainability consultant. Based on the following description of an organization's activities and sustainability goals, propose three innovative scenarios to improve carbon savings and resource efficiency. Provide only the scenario names and brief descriptions in a list format.
 
-### Description:
-{activities}
+    ### Description:
+    {activities}
 
-### Proposed Scenarios:
-1.
-2.
-3.
-"""
+    ### Proposed Scenarios:
+    1.
+    2.
+    3.
+    """
 
             try:
-                response = openai.ChatCompletion.create(
-                    model="gpt-4",
-                    messages=[
-                        {"role": "system", "content": "You are an expert sustainability consultant."},
-                        {"role": "user", "content": prompt}
-                    ],
+                response = openai.Completion.create(
+                    engine="text-davinci-003",
+                    prompt=prompt,
                     max_tokens=300,
                     temperature=0.7,
                 )
-                ai_output = response['choices'][0]['message']['content'].strip()
+                ai_output = response.choices[0].text.strip()
 
                 # Parse the AI output into a list of scenarios
                 scenarios = []
@@ -258,7 +231,6 @@ You are an expert sustainability consultant. Based on the following description 
                     st.warning("AI was unable to generate three distinct scenarios. Please consider providing more detailed information.")
                 else:
                     st.session_state.proposed_scenarios = scenarios[:3]
-                    st.session_state.ai_proposed = True
                     st.success("Proposed scenarios generated successfully!")
             
             except OpenAIError as e:
@@ -279,7 +251,7 @@ You are an expert sustainability consultant. Based on the following description 
     st.subheader("Scenario Planning (Editable Table)")
 
     # Determine default scenarios (proposed by AI) or allow user to input their own
-    if st.session_state.proposed_scenarios and st.session_state.ai_proposed:
+    if st.session_state.proposed_scenarios:
         proposed = st.radio(
             "Would you like to use the AI-proposed scenarios?",
             ("Yes", "No"),
@@ -293,7 +265,6 @@ You are an expert sustainability consultant. Based on the following description 
                 "Scenario": scenario_names,
                 "Description": scenario_descriptions
             })
-            st.session_state.ai_proposed = False  # Reset after acceptance
         else:
             num_scenarios = st.number_input(
                 "How many scenarios do you want to add?",
@@ -307,7 +278,6 @@ You are an expert sustainability consultant. Based on the following description 
             scenario_desc_data = [[f"Scenario {i+1}", ""] for i in range(int(num_scenarios))]
             scenario_desc_df = pd.DataFrame(scenario_desc_data, columns=scenario_desc_columns)
             st.session_state.scenario_desc_df = scenario_desc_df
-            st.session_state.proposed_scenarios = []  # Clear proposed scenarios
 
     else:
         num_scenarios = st.number_input(
@@ -522,8 +492,11 @@ You are an expert sustainability consultant. Based on the following description 
         # Initialize or update criteria_df in session state
         if st.session_state.criteria_df.empty:
             criteria_df = pd.DataFrame(columns=["Scenario"] + selected_criteria)
-            # Assign scenario names from scenario_desc_df
-            criteria_df["Scenario"] = st.session_state.scenario_desc_df["Scenario"].tolist()
+            if 'results_df' in locals() and not results_df.empty:
+                criteria_df["Scenario"] = results_df["Scenario"].tolist()
+            else:
+                # Assign scenario names from scenario_desc_df
+                criteria_df["Scenario"] = st.session_state.scenario_desc_df["Scenario"].tolist()
             for c in selected_criteria:
                 criteria_df[c] = 1
             st.session_state.criteria_df = criteria_df
@@ -586,6 +559,74 @@ You are an expert sustainability consultant. Based on the following description 
         # Update session state with edited criteria
         st.session_state.criteria_df = edited_criteria_df
 
+    # ----------------------- AI-Based Scoring -----------------------
+
+    # Assign default scores based on scenario descriptions using AI analysis
+    scenario_desc = st.session_state.get('scenario_desc_df')
+    if scenario_desc is not None and not scenario_desc.empty:
+        for idx, row in scenario_desc.iterrows():
+            description = row["Description"].strip()
+            scenario = row["Scenario"]
+
+            if description == "":
+                continue  # Skip empty descriptions
+
+            # Prepare the prompt for the AI model
+            prompt = f"""
+You are an expert sustainability analyst. Based on the following scenario description, assign a score between 1 and 10 for each of the selected sustainability criteria. Provide only the scores in JSON format.
+
+### Scenario Description:
+{description}
+
+### Criteria to Evaluate:
+{selected_criteria}
+
+### JSON Output:
+"""
+
+            try:
+                response = openai.Completion.create(
+                    engine="text-davinci-003",
+                    prompt=prompt,
+                    max_tokens=150,
+                    temperature=0.3,
+                )
+                ai_output = response.choices[0].text.strip()
+                # Attempt to parse the JSON output
+                try:
+                    scores = json.loads(ai_output)
+                    if isinstance(scores, dict):
+                        for crit in selected_criteria:
+                            if crit in scores:
+                                score = scores[crit]
+                                # Validate score is between 1 and 10
+                                if isinstance(score, (int, float)) and 1 <= score <= 10:
+                                    st.session_state.criteria_df.loc[st.session_state.criteria_df["Scenario"] == scenario, crit] = score
+                                else:
+                                    st.session_state.criteria_df.loc[st.session_state.criteria_df["Scenario"] == scenario, crit] = 5  # Neutral score
+                            else:
+                                # If criterion not in scores, assign neutral
+                                st.session_state.criteria_df.loc[st.session_state.criteria_df["Scenario"] == scenario, crit] = 5
+                    else:
+                        # If not a dict, assign neutral scores
+                        for crit in selected_criteria:
+                            st.session_state.criteria_df.loc[st.session_state.criteria_df["Scenario"] == scenario, crit] = 5
+                except json.JSONDecodeError:
+                    # If JSON parsing fails, assign neutral scores
+                    for crit in selected_criteria:
+                        st.session_state.criteria_df.loc[st.session_state.criteria_df["Scenario"] == scenario, crit] = 5
+            except OpenAIError as e:
+                st.error(f"Error with OpenAI API: {e}")
+                for crit in selected_criteria:
+                    st.session_state.criteria_df.loc[st.session_state.criteria_df["Scenario"] == scenario, crit] = 5
+            except Exception as e:
+                st.error(f"An unexpected error occurred: {e}")
+                for crit in selected_criteria:
+                    st.session_state.criteria_df.loc[st.session_state.criteria_df["Scenario"] == scenario, crit] = 5
+
+        # Update the edited_criteria_df in session state
+        st.session_state.edited_criteria_df = st.session_state.criteria_df.copy()
+
     # ----------------------- Run Model -----------------------
 
     # Only proceed if criteria were selected and edited_criteria_df is defined
@@ -597,6 +638,12 @@ You are an expert sustainability consultant. Based on the following description 
             else:
                 # Create a copy for scaled results
                 scaled_criteria_df = st.session_state.edited_criteria_df.copy()
+
+                # Define which criteria need inversion (lower is better)
+                inversion_criteria = []
+                for crit in selected_criteria:
+                    if crit in scale_criteria:
+                        inversion_criteria.append(crit)
 
                 # Define specific criteria to normalize
                 criteria_to_normalize = ["Return on Investment (ROI)(years)", "Initial investment (£)", "Other - Positive Trend", "Other - Negative Trend"]
@@ -616,7 +663,7 @@ You are an expert sustainability consultant. Based on the following description 
                     max_val = np.max(values)
 
                     if crit == "Other - Positive Trend":
-                        # Higher is better: scale to 10
+                        # Higher is better: scale to 10 - higher value
                         if max_val == min_val:
                             scaled_values = np.ones_like(values) * 10 if min_val != 0 else np.zeros_like(values)
                         else:
@@ -644,7 +691,7 @@ You are an expert sustainability consultant. Based on the following description 
                             scaled_values = 10 - 9 * (values - min_val) / (max_val - min_val)
                         scaled_criteria_df[crit] = scaled_values
 
-                # Calculate the sum of normalized criteria for each scenario
+                # Calculate the sum of criteria for each scenario
                 scaled_criteria_df['Total Score'] = scaled_criteria_df[selected_criteria].sum(axis=1)
 
                 # Normalize the total scores between 1 and 10
@@ -696,12 +743,17 @@ You are an expert sustainability consultant. Based on the following description 
                 styled_display = scaled_criteria_df[['Scenario', 'Normalized Score', 'Rank']].copy()
                 styled_display = styled_display.sort_values('Rank')
 
-                # Apply color formatting based on 'Normalized Score' using Styler.map
-                styled_display_style = styled_display.style.map(
-                    {'Normalized Score': styled_display['Normalized Score'].apply(
-                        lambda x: 'background-color: green' if x >=7 else ('background-color: yellow' if x >=5 else 'background-color: red'))
-                    }
-                )
+                # Apply color formatting based on 'Normalized Score'
+                def color_cell(score):
+                    if score >= 7:
+                        return 'background-color: green'
+                    elif score >= 5:
+                        return 'background-color: yellow'
+                    else:
+                        return 'background-color: red'
+
+                # Style the 'Normalized Score' column
+                styled_display_style = styled_display.style.applymap(color_cell, subset=['Normalized Score'])
 
                 st.write("### Ranked Scenarios with Gradient Colors")
                 st.dataframe(styled_display_style)
