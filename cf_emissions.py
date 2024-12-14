@@ -14,14 +14,6 @@ import openai  # Reintroduced OpenAI for ChatGPT integration
 
 openai.api_key = st.secrets["OPENAI_API_KEY"]
 
-# ----------------------- Test OpenAI Linkage -----------------------
-def test_openai_linkage():
-    try:
-        response = openai.Model.list()
-        st.success("OpenAI API is working fine.")
-    except Exception as e:
-        st.error(f"OpenAI API test failed: {e}")
-
 # ----------------------- Session State Management -----------------------
 def save_session_state():
     """
@@ -74,6 +66,14 @@ def load_session_state(uploaded_file):
         st.success("Progress loaded successfully!")
     except Exception as e:
         st.error(f"Failed to load progress: {e}")
+
+# ----------------------- Test OpenAI Linkage -----------------------
+def test_openai_linkage():
+    try:
+        response = openai.Model.list()
+        st.success("OpenAI API is working fine.")
+    except Exception as e:
+        st.error(f"OpenAI API test failed: {e}")
 
 # ----------------------- OpenAI Scenario Generation -----------------------
 def generate_scenarios(description, num_scenarios):
@@ -386,6 +386,8 @@ def main():
 
         # Save edited criteria to session state
         st.session_state['edited_criteria_df'] = edited_scenario_df
+
+
 
 
 
