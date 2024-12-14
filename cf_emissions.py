@@ -32,7 +32,6 @@ def get_openai_version_pkg_resources():
         return "Package not found."
 
 # ----------------------- Test OpenAI Linkage -----------------------
-# ----------------------- Test OpenAI Linkage -----------------------
 def test_openai_linkage():
     try:
         # Attempt a simple API call to test linkage
@@ -57,6 +56,8 @@ def test_openai_linkage():
         st.error(f"OpenAI API error: {e}")
     except Exception as e:
         st.error(f"Unexpected error: {e}")
+
+# Replace the existing test_openai_linkage function with this code in your cf_emissions.py file.
 
 # ----------------------- Session State Management -----------------------
 def save_session_state():
