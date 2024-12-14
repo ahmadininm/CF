@@ -88,15 +88,18 @@ def generate_scenarios(description, num_scenarios):
     )
     
     try:
-        response = openai.Completion.create(
-            engine="text-davinci-003",  # You can choose a different engine if desired
-            prompt=prompt,
+        response = openai.ChatCompletion.create(
+            model="gpt-3.5-turbo",  # You can choose a different model if desired
+            messages=[
+                {"role": "system", "content": "You are an expert sustainability analyst."},
+                {"role": "user", "content": prompt}
+            ],
             max_tokens=500,
             n=1,
             stop=None,
             temperature=0.7,
         )
-        scenarios_text = response.choices[0].text.strip()
+        scenarios_text = response.choices[0].message['content'].strip()
         # Split scenarios based on numbering
         scenarios = []
         for scenario in scenarios_text.split('\n'):
@@ -113,7 +116,6 @@ def generate_scenarios(description, num_scenarios):
     except Exception as e:
         st.error(f"Error generating scenarios: {e}")
         return []
-
 # ----------------------- Main Application -----------------------
 
 def main():
