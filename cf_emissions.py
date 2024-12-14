@@ -55,7 +55,7 @@ def chat_gpt(prompt):
     """Function to interact with OpenAI's ChatCompletion API."""
     try:
         response = openai.ChatCompletion.create(
-            model="gpt-3.5-turbo",  # or "gpt-4" if accessible
+            model="gpt-3.5-turbo",  # Ensure you have access to this model
             messages=[{"role": "user", "content": prompt}]
         )
         return response['choices'][0]['message']['content'].strip()
@@ -734,5 +734,5 @@ You are an expert sustainability consultant. Based on the following description 
                 if len(top_scenario) > 0:
                     st.success(f"The top-ranked scenario is **{top_scenario[0]}** with the highest carbon savings.")
 
-    if __name__ == "__main__":
-        main()
+if __name__ == "__main__":
+    main()
