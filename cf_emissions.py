@@ -15,12 +15,17 @@ import openai  # Reintroduced OpenAI for ChatGPT integration
 openai.api_key = st.secrets["OPENAI_API_KEY"]
 
 # ----------------------- Test OpenAI Linkage -----------------------
+# ----------------------- Test OpenAI Linkage -----------------------
 def test_openai_linkage():
     try:
         response = openai.Model.list()
         st.success("OpenAI API is working fine.")
-    except Exception as e:
+    except openai.error.AuthenticationError:
+        st.error("Authentication failed. Please check your OpenAI API key.")
+    except openai.error.OpenAIError as e:
         st.error(f"OpenAI API test failed: {e}")
+    except Exception as e:
+        st.error(f"Unexpected error: {e}")
 
 # ----------------------- Session State Management -----------------------
 def save_session_state():
