@@ -302,7 +302,7 @@ You are an expert sustainability consultant. Based on the following description 
             st.session_state.scenario_desc_df,
             use_container_width=True,
             key="scenario_desc_editor",
-            num_rows="fixed",
+            num_rows="fixed",  # Fixed number of rows
             disabled=False,
             column_config={
                 "Scenario": st.column_config.TextColumn(label="Scenario", disabled=True),
@@ -318,7 +318,7 @@ You are an expert sustainability consultant. Based on the following description 
             st.session_state.scenario_desc_df,
             use_container_width=True,
             key="scenario_desc_editor",
-            num_rows="fixed",
+            num_rows="fixed",  # Fixed number of rows
             disabled=False
         )
 
@@ -331,7 +331,6 @@ You are an expert sustainability consultant. Based on the following description 
     scenario_df = pd.DataFrame(scenario_data, columns=scenario_columns)
 
     st.write("Please adjust the percentages for each scenario. Double-click a cell to edit the value.")
-    st.write("The percentage represents usage relative to BAU. For example, 90% means the item is at 90% of its BAU usage, thereby achieving a 10% reduction.")
 
     # Editable table for scenario percentages
     try:
@@ -339,11 +338,16 @@ You are an expert sustainability consultant. Based on the following description 
             scenario_df,
             use_container_width=True,
             key="scenario_percent_editor",
-            num_rows="fixed",
+            num_rows="fixed",  # Fixed number of rows
             disabled=False,
             column_config={
                 "Item": st.column_config.TextColumn(label="Item", disabled=True),
-                **{f"{row['Scenario']} (%)": st.column_config.NumberColumn(label=f"{row['Scenario']} (%)", min_value=0.0, max_value=100.0) for index, row in st.session_state.scenario_desc_df.iterrows()}
+                **{f"{row['Scenario']} (%)": st.column_config.NumberColumn(
+                    label=f"{row['Scenario']} (%)", 
+                    min_value=0.0, 
+                    max_value=100.0, 
+                    format="%.1f"
+                ) for index, row in st.session_state.scenario_desc_df.iterrows()}
             }
         )
     except TypeError as e:
@@ -355,16 +359,18 @@ You are an expert sustainability consultant. Based on the following description 
             scenario_df,
             use_container_width=True,
             key="scenario_percent_editor",
-            num_rows="fixed",
+            num_rows="fixed",  # Fixed number of rows
             disabled=False
         )
 
     # Update session state with edited scenario percentages
     st.session_state['scenario_percent_df'] = edited_scenario_df
 
-    # Convert columns (except Item) to numeric
+    # Convert columns (except Item) to numeric and enforce constraints
     for col in edited_scenario_df.columns[1:]:
         edited_scenario_df[col] = pd.to_numeric(edited_scenario_df[col], errors='coerce').fillna(100.0)
+        # Enforce percentage limits
+        edited_scenario_df[col] = edited_scenario_df[col].clip(lower=0.0, upper=100.0)
 
     # ----------------------- Additional Criteria -----------------------
 
@@ -547,7 +553,7 @@ You are an expert sustainability consultant. Based on the following description 
                 st.session_state.criteria_df,
                 use_container_width=True,
                 key="criteria_editor",
-                num_rows="dynamic",
+                num_rows="fixed",  # Fixed number of rows
                 disabled=False,
                 column_config=column_config,
                 hide_index=True
@@ -561,7 +567,7 @@ You are an expert sustainability consultant. Based on the following description 
                 st.session_state.criteria_df,
                 use_container_width=True,
                 key="criteria_editor",
-                num_rows="dynamic",
+                num_rows="fixed",  # Fixed number of rows
                 disabled=False
             )
 
@@ -630,16 +636,43 @@ You are an expert sustainability consultant. Based on the following description 
                 # Rank the scenarios based on Total Score
                 scaled_criteria_df['Rank'] = scaled_criteria_df['Total Score'].rank(method='min', ascending=False).astype(int)
 
+                # Calculate Scenario Emissions based on percentages
+                # First, ensure that scenario_percent_df exists
+                if 'scenario_percent_df' in st.session_state:
+                    scenario_percent_df = st.session_state['scenario_percent_df']
+                else:
+                    st.error("Scenario percentages data not found.")
+                    st.stop()
+
+                # Calculate emissions for each scenario
+                # Assuming 'Daily Emissions (kg CO₂e)' is the BAU daily emissions
+                # Multiply by (percentage / 100) to get scenario emissions
+                bau_daily_emissions = st.session_state.bau_data.set_index('Item')['Daily Emissions (kg CO₂e)']
+
+                # Initialize a DataFrame to hold scenario emissions
+                scenario_emissions = pd.DataFrame(index=bau_daily_emissions.index)
+
+                for scenario in scenario_percent_df.columns[1:]:
+                    scenario_emissions[scenario] = bau_daily_emissions * (scenario_percent_df[scenario] / 100.0)
+
+                # Calculate total annual emissions for each scenario
+                scenario_annual_emissions = scenario_emissions.sum() * 365  # Assuming daily usage
+
                 # Calculate CO₂ Savings
                 total_annual_bau = st.session_state.bau_data['Annual Emissions (kg CO₂e)'].sum()
-                scaled_criteria_df['CO₂ Saving (kg CO₂e/year)'] = total_annual_bau - (scaled_criteria_df['Total Score'])
-                scaled_criteria_df['CO₂ Saving (%)'] = (scaled_criteria_df['CO₂ Saving (kg CO₂e/year)'] / total_annual_bau * 100) if total_annual_bau != 0 else 0
+                co2_saving_percentage = ((total_annual_bau - scenario_annual_emissions) / total_annual_bau * 100) if total_annual_bau != 0 else 0
 
+                # Add CO₂ Savings to scaled_criteria_df
+                scaled_criteria_df['CO₂ Saving (kg CO₂e/year)'] = total_annual_bau - scenario_annual_emissions
+                scaled_criteria_df['CO₂ Saving (%)'] = co2_saving_percentage
+
+                # Display Scenario Results
                 st.write("### Scenario Results")
                 st.dataframe(scaled_criteria_df.round(2))
 
+                # Display CO₂ Savings Graph
                 st.subheader("CO₂ Savings Compared to BAU (%)")
-                st.bar_chart(scaled_criteria_df.set_index("Scenario")["CO₂ Saving (%)"], use_container_width=True)
+                st.bar_chart(co2_saving_percentage, use_container_width=True)
 
                 # Option to download scenario results as CSV
                 st.download_button(
