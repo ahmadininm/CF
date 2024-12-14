@@ -7,10 +7,12 @@ import base64
 from io import BytesIO
 import openai  # For OpenAI API integration
 import importlib.metadata
-import pkg_resources
 
-# Import specific exceptions from openai
-from openai import InvalidRequestError, AuthenticationError, RateLimitError, OpenAIError
+# It's recommended to remove pkg_resources if not needed
+# import pkg_resources
+
+# Import specific exceptions from openai.error instead of openai
+from openai.error import InvalidRequestError, AuthenticationError, RateLimitError, OpenAIError
 
 # ----------------------- OpenAI Configuration -----------------------
 # Ensure you have set your OpenAI API key in Streamlit secrets as follows:
@@ -18,6 +20,9 @@ from openai import InvalidRequestError, AuthenticationError, RateLimitError, Ope
 # API_KEY = "your-openai-api-key"
 
 openai.api_key = st.secrets["OPENAI_API_KEY"]
+
+
+
 
 # ----------------------- Helper Functions -----------------------
 def get_openai_version_importlib():
