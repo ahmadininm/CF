@@ -6,6 +6,7 @@ import altair as alt  # For advanced visualizations
 import base64
 from io import BytesIO
 import openai  # Reintroduced OpenAI for ChatGPT integration
+openai migrate
 
 # ----------------------- OpenAI Configuration -----------------------
 # Ensure you have set your OpenAI API key in Streamlit secrets as follows:
