@@ -45,10 +45,16 @@ def test_openai_linkage():
             max_tokens=10,
             temperature=0.7,
         )
-        message = response['choices'][0]['message']['content'].strip()
+        message = response.choices[0].message.content.strip()
         st.success(f"OpenAI API is working fine. Response: {message}")
     except openai.error.InvalidRequestError as e:
         st.error(f"OpenAI API test failed: {e}")
+    except openai.error.AuthenticationError as e:
+        st.error(f"Authentication failed: {e}")
+    except openai.error.RateLimitError as e:
+        st.error(f"Rate limit exceeded: {e}")
+    except openai.error.OpenAIError as e:
+        st.error(f"OpenAI API error: {e}")
     except Exception as e:
         st.error(f"Unexpected error: {e}")
 
