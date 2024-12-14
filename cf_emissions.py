@@ -7,7 +7,6 @@ import base64
 from io import BytesIO
 import openai  # Reintroduced OpenAI for ChatGPT integration
 
-
 # ----------------------- OpenAI Configuration -----------------------
 # Ensure you have set your OpenAI API key in Streamlit secrets as follows:
 # [OPENAI]
