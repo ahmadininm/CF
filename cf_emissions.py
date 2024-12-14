@@ -205,7 +205,7 @@ def main():
 
     if 'selected_criteria' not in st.session_state:
         st.session_state.selected_criteria = []
-    
+
     # ----------------------- BAU Inputs -----------------------
     st.subheader("Enter Daily Usage for Business As Usual (BAU)")
 
@@ -502,6 +502,7 @@ def main():
             st.markdown(f"**{crit}:** {criteria_options[crit]}", unsafe_allow_html=True)
 
         # ----------------------- Assign Criteria Values -----------------------
+
         if selected_criteria and not st.session_state.edited_scenario_desc_df.empty:
             st.write("### Assign Criteria Values to Each Scenario")
             st.write("Double-click a cell to edit. For (1-10) criteria, only enter values between 1 and 10.")
