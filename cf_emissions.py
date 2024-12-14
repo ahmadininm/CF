@@ -16,14 +16,6 @@ openai.api_key = st.secrets["OPENAI_API_KEY"]
 
 # ----------------------- Test OpenAI Linkage -----------------------
 
-from openai import OpenAI
-client = OpenAI()
-
-client.completions.create(
-  model="gpt-3.5-turbo-instruct",
-  prompt="Say this is a test",
-  max_tokens=7,
-  temperature=0
 
 def test_openai_linkage():
     try:
