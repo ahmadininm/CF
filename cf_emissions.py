@@ -95,11 +95,9 @@ def generate_scenarios(description, num_scenarios):
                 {"role": "user", "content": prompt}
             ],
             max_tokens=500,
-            n=1,
-            stop=None,
             temperature=0.7,
         )
-        scenarios_text = response.choices[0].message['content'].strip()
+        scenarios_text = response['choices'][0]['message']['content'].strip()
         # Split scenarios based on numbering
         scenarios = []
         for scenario in scenarios_text.split('\n'):
@@ -116,6 +114,7 @@ def generate_scenarios(description, num_scenarios):
     except Exception as e:
         st.error(f"Error generating scenarios: {e}")
         return []
+
 # ----------------------- Main Application -----------------------
 
 def main():
@@ -386,6 +385,8 @@ def main():
 
         # Save edited criteria to session state
         st.session_state['edited_criteria_df'] = edited_scenario_df
+
+
 
     # ----------------------- Additional Criteria -----------------------
 
