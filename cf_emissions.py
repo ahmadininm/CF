@@ -1,18 +1,10 @@
 import pandas as pd
 import streamlit as st
 import numpy as np
-import openai
 import json
 import altair as alt  # For advanced visualizations
 import base64
 from io import BytesIO
-
-# For OpenAI SDK >=1.0.0
-try:
-    from openai.error import OpenAIError
-except ImportError:
-    # For older OpenAI SDK versions
-    OpenAIError = Exception
 
 def save_session_state():
     """
@@ -76,24 +68,15 @@ def main():
         href = f'<a href="data:text/json;base64,{b64}" download="sustainability_progress.json">Download Progress</a>'
         st.sidebar.markdown(href, unsafe_allow_html=True)
         st.sidebar.success("Progress saved! Click the link to download.")
-
+    
     # Load Progress Uploader
     st.sidebar.write("### Load Progress")
     uploaded_file = st.sidebar.file_uploader("Upload your saved progress JSON file:", type=["json"])
     if uploaded_file is not None:
         load_session_state(uploaded_file)
 
-    # ----------------------- OpenAI API Key Setup -----------------------
-
-    # Retrieve OpenAI API key from Streamlit Secrets
-    try:
-        openai.api_key = st.secrets["OPENAI_API_KEY"]
-    except KeyError:
-        st.error("OpenAI API key not found. Please set it in the Streamlit Secrets.")
-        st.stop()
-
     # ----------------------- Initialize Session State -----------------------
-
+    
     if 'bau_data' not in st.session_state:
         default_items = [
             "Gas (kWh/day)", 
@@ -597,5 +580,5 @@ def main():
                 if len(top_scenario) > 0:
                     st.success(f"The top-ranked scenario is **{top_scenario[0]}** with the highest carbon savings.")
 
-    if __name__ == "__main__":
-        main()
+if __name__ == "__main__":
+    main()
