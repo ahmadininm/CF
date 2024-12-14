@@ -14,6 +14,25 @@ import openai  # Reintroduced OpenAI for ChatGPT integration
 
 openai.api_key = st.secrets["OPENAI_API_KEY"]
 
+# ----------------------- OpenAI Test Function -----------------------
+def test_openai_linkage():
+    try:
+        response = openai.ChatCompletion.create(
+            model="gpt-3.5-turbo",
+            messages=[
+                {"role": "system", "content": "You are an OpenAI model."},
+                {"role": "user", "content": "Say hello!"}
+            ],
+            max_tokens=10,
+            temperature=0.7,
+        )
+        st.success("OpenAI linkage test passed. Response: " + response['choices'][0]['message']['content'].strip())
+    except Exception as e:
+        st.error(f"OpenAI linkage test failed: {e}")
+
+# Run the test function
+test_openai_linkage()
+
 # ----------------------- Session State Management -----------------------
 
 def save_session_state():
@@ -385,6 +404,8 @@ def main():
 
         # Save edited criteria to session state
         st.session_state['edited_criteria_df'] = edited_scenario_df
+
+
 
 
 
