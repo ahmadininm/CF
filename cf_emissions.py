@@ -4,6 +4,8 @@ import numpy as np
 import openai
 import json
 import altair as alt  # For advanced visualizations
+import base64
+from io import BytesIO
 
 # For OpenAI SDK >=1.0.0
 try:
@@ -11,6 +13,47 @@ try:
 except ImportError:
     # For older OpenAI SDK versions
     OpenAIError = Exception
+
+def save_session_state():
+    """
+    Serializes the necessary session state variables into a JSON-compatible dictionary.
+    Returns:
+        dict: Serialized session state.
+    """
+    state = {
+        'bau_data': st.session_state.get('bau_data').to_json(),
+        'emission_factors': st.session_state.get('emission_factors'),
+        'scenario_desc_df': st.session_state.get('edited_scenario_desc_df').to_json(),
+        'selected_criteria': st.session_state.get('selected_criteria'),
+        'edited_criteria_df': st.session_state.get('edited_criteria_df').to_json() if 'edited_criteria_df' in st.session_state else None
+    }
+    return state
+
+def load_session_state(uploaded_file):
+    """
+    Deserializes the uploaded JSON file and updates the session state variables.
+    Args:
+        uploaded_file (BytesIO): Uploaded JSON file.
+    """
+    try:
+        data = json.load(uploaded_file)
+        # Load BAU Data
+        st.session_state.bau_data = pd.read_json(data['bau_data'])
+        st.session_state.emission_factors = data['emission_factors']
+        
+        # Load Scenario Descriptions
+        st.session_state.edited_scenario_desc_df = pd.read_json(data['scenario_desc_df'])
+        
+        # Load Selected Criteria
+        st.session_state.selected_criteria = data['selected_criteria']
+        
+        # Load Criteria Values if available
+        if data['edited_criteria_df']:
+            st.session_state.edited_criteria_df = pd.read_json(data['edited_criteria_df'])
+        
+        st.success("Progress loaded successfully!")
+    except Exception as e:
+        st.error(f"Failed to load progress: {e}")
 
 def main():
     # Set page configuration
@@ -20,16 +63,25 @@ def main():
     st.title("Sustainability Decision Assistant")
     st.write("*A tool to prioritize scenarios for carbon savings and resource efficiency, enabling data-driven sustainable decisions.*")
 
-    # Debugging: Display Streamlit and OpenAI package versions
-    try:
-        st.write(f"**Streamlit Version:** {st.__version__}")
-    except AttributeError:
-        st.write("**Streamlit Version:** Not Found")
+    # ----------------------- Save and Load Progress -----------------------
     
-    try:
-        st.write(f"**OpenAI Package Version:** {openai.__version__}")
-    except AttributeError:
-        st.write("**OpenAI Package Version:** Not Found")
+    st.sidebar.header("🔄 Save and Load Progress")
+    
+    # Save Progress Button
+    if st.sidebar.button("Save Progress"):
+        session_state_serialized = save_session_state()
+        json_data = json.dumps(session_state_serialized, indent=4)
+        # Encode the JSON data for download
+        b64 = base64.b64encode(json_data.encode()).decode()
+        href = f'<a href="data:text/json;base64,{b64}" download="sustainability_progress.json">Download Progress</a>'
+        st.sidebar.markdown(href, unsafe_allow_html=True)
+        st.sidebar.success("Progress saved! Click the link to download.")
+
+    # Load Progress Uploader
+    st.sidebar.write("### Load Progress")
+    uploaded_file = st.sidebar.file_uploader("Upload your saved progress JSON file:", type=["json"])
+    if uploaded_file is not None:
+        load_session_state(uploaded_file)
 
     # ----------------------- OpenAI API Key Setup -----------------------
 
@@ -65,21 +117,15 @@ def main():
         })
         st.session_state.emission_factors = emission_factors.copy()
     
-    if 'scenario_desc_df' not in st.session_state:
-        st.session_state.scenario_desc_df = pd.DataFrame(columns=["Scenario", "Description"])
+    if 'edited_scenario_desc_df' not in st.session_state:
+        st.session_state.edited_scenario_desc_df = pd.DataFrame(columns=["Scenario", "Description"])
     
-    if 'criteria_df' not in st.session_state:
-        st.session_state.criteria_df = pd.DataFrame(columns=["Scenario"])
-    
+    if 'edited_criteria_df' not in st.session_state:
+        st.session_state.edited_criteria_df = pd.DataFrame()
+
     if 'selected_criteria' not in st.session_state:
         st.session_state.selected_criteria = []
     
-    if 'proposed_scenarios' not in st.session_state:
-        st.session_state.proposed_scenarios = []
-    
-    if 'ai_proposed' not in st.session_state:
-        st.session_state.ai_proposed = False
-
     # ----------------------- BAU Inputs -----------------------
 
     st.subheader("Enter Daily Usage for Business As Usual (BAU)")
@@ -96,7 +142,7 @@ def main():
             value=bau_data.loc[i, "Daily Usage (Units)"],
             key=f"bau_usage_{i}"
         )
-    
+
     # Option to add custom items
     st.subheader("Add Custom Items (Optional)")
     st.write("If there are any additional sources of emissions not accounted for above, you can add them here.")
@@ -354,14 +400,14 @@ def main():
 
     # ----------------------- Assign Criteria Values -----------------------
 
-    if selected_criteria:
+    if selected_criteria and not st.session_state.edited_scenario_desc_df.empty:
         st.write("### Assign Criteria Values to Each Scenario")
         st.write("Double-click a cell to edit. For (1-10) criteria, only enter values between 1 and 10.")
 
         # Create a DataFrame for criteria values
         criteria_columns = ["Scenario"] + selected_criteria
         criteria_data = []
-        for index, row in edited_scenario_desc_df.iterrows():
+        for index, row in st.session_state.edited_scenario_desc_df.iterrows():
             scenario = row["Scenario"]
             criteria_values = [scenario] + [1 for _ in selected_criteria]  # Initialize with 1
             criteria_data.append(criteria_values)
@@ -551,5 +597,5 @@ def main():
                 if len(top_scenario) > 0:
                     st.success(f"The top-ranked scenario is **{top_scenario[0]}** with the highest carbon savings.")
 
-if __name__ == "__main__":
-    main()
+    if __name__ == "__main__":
+        main()
