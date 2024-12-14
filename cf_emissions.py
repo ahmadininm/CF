@@ -2,7 +2,8 @@ import pandas as pd
 import streamlit as st
 import numpy as np
 import openai
-import altair as alt
+import json
+import altair as alt  # For advanced visualizations
 import logging
 
 # Configure logging
@@ -12,7 +13,7 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# Initialize OpenAI API
+# Initialize OpenAI API (Ensure you have the latest OpenAI SDK installed)
 try:
     from openai.error import OpenAIError
 except ImportError:
@@ -52,6 +53,12 @@ def initialize_session_state():
     if 'selected_criteria' not in st.session_state:
         st.session_state.selected_criteria = []
     
+    if 'edited_criteria_df' not in st.session_state:
+        st.session_state.edited_criteria_df = pd.DataFrame()
+    
+    if 'dynamic_other_criteria' not in st.session_state:
+        st.session_state.dynamic_other_criteria = []
+    
     if 'proposed_scenarios' not in st.session_state:
         st.session_state.proposed_scenarios = []
     
@@ -64,23 +71,6 @@ def clear_cache():
         st.cache_data.clear()
         st.cache_resource.clear()
         st.experimental_rerun()
-
-def chat_gpt(prompt):
-    """Function to interact with OpenAI's ChatCompletion API."""
-    try:
-        response = openai.ChatCompletion.create(
-            model="gpt-3.5-turbo",  # Change to "gpt-4" if you have access
-            messages=[{"role": "user", "content": prompt}]
-        )
-        return response['choices'][0]['message']['content'].strip()
-    except OpenAIError as e:
-        logger.error(f"OpenAI API Error: {e}")
-        st.error(f"OpenAI API Error: {e}")
-        return None
-    except Exception as e:
-        logger.error(f"Unexpected Error: {e}")
-        st.error(f"An unexpected error occurred: {e}")
-        return None
 
 def main():
     # Initialize session state
@@ -96,7 +86,7 @@ def main():
     # Add Cache Clearing Button
     clear_cache()
 
-    # Display Streamlit and OpenAI package versions for debugging
+    # Debugging: Display Streamlit and OpenAI package versions
     try:
         st.write(f"**Streamlit Version:** {st.__version__}")
     except AttributeError:
@@ -174,12 +164,23 @@ def main():
                 else:
                     st.warning(f"Item '{item_name.strip()}' already exists.")
 
-    # ----------------------- Process BAU Data -----------------------
+    # ----------------------- Fixing the TypeError -----------------------
 
-    # Ensure 'Emission Factor (kg CO₂e/unit)' is float
-    bau_data = st.session_state.bau_data.copy()
-    bau_data['Emission Factor (kg CO₂e/unit)'] = bau_data['Item'].map(st.session_state.emission_factors).astype(float).fillna(0.0)
+    # Drop the "Emission Factor (kg CO₂e/unit)" column if it exists to prevent dtype conflicts
+    if "Emission Factor (kg CO₂e/unit)" in st.session_state.bau_data.columns:
+        st.session_state.bau_data = st.session_state.bau_data.drop(columns=["Emission Factor (kg CO₂e/unit)"])
+
+    # Convert 'Item' to a categorical type to preserve order in the bar chart
+    # This should be done after ensuring "Emission Factor" is float
+    bau_data = st.session_state.bau_data
+    bau_data['Item'] = pd.Categorical(bau_data['Item'], categories=bau_data['Item'], ordered=True)
     st.session_state.bau_data = bau_data
+
+    # Update emission factors in BAU Data
+    # Ensure 'Emission Factor (kg CO₂e/unit)' is float
+    emission_factors_series = st.session_state.bau_data["Item"].map(st.session_state.emission_factors)
+    # Explicitly set the dtype to float
+    st.session_state.bau_data["Emission Factor (kg CO₂e/unit)"] = emission_factors_series.astype(float).fillna(0.0)
 
     # Calculate emissions for BAU
     st.session_state.bau_data["Daily Emissions (kg CO₂e)"] = st.session_state.bau_data["Daily Usage (Units)"] * st.session_state.bau_data["Emission Factor (kg CO₂e/unit)"]
@@ -237,8 +238,19 @@ You are an expert sustainability consultant. Based on the following description 
 3.
 """
 
-            ai_output = chat_gpt(prompt)
-            if ai_output:
+            try:
+                response = openai.ChatCompletion.create(
+                    model="gpt-4",
+                    messages=[
+                        {"role": "system", "content": "You are an expert sustainability consultant."},
+                        {"role": "user", "content": prompt}
+                    ],
+                    max_tokens=300,
+                    temperature=0.7,
+                )
+                ai_output = response['choices'][0]['message']['content'].strip()
+                logger.info(f"AI Output: {ai_output}")
+
                 # Parse the AI output into a list of scenarios
                 scenarios = []
                 for line in ai_output.split('\n'):
@@ -252,6 +264,13 @@ You are an expert sustainability consultant. Based on the following description 
                     st.session_state.proposed_scenarios = scenarios[:3]
                     st.session_state.ai_proposed = True
                     st.success("Proposed scenarios generated successfully!")
+            
+            except OpenAIError as e:
+                logger.error(f"OpenAI API Error: {e}")
+                st.error(f"OpenAI API Error: {e}")
+            except Exception as e:
+                logger.error(f"Unexpected Error: {e}")
+                st.error(f"An unexpected error occurred: {e}")
 
     # Display Proposed Scenarios
     if st.session_state.proposed_scenarios:
@@ -314,10 +333,9 @@ You are an expert sustainability consultant. Based on the following description 
 
     # Editable table for scenario descriptions
     try:
-        edited_scenario_desc_df = st.data_editor(st.session_state.scenario_desc_df, use_container_width=True, key="scenario_desc_editor", num_rows="fixed")
+        edited_scenario_desc_df = st.data_editor(st.session_state.scenario_desc_df, use_container_width=True, key="scenario_desc_editor")
     except AttributeError:
-        # Fallback for older Streamlit versions
-        edited_scenario_desc_df = st.experimental_data_editor(st.session_state.scenario_desc_df, use_container_width=True, key="scenario_desc_editor", num_rows="fixed")
+        edited_scenario_desc_df = st.experimental_data_editor(st.session_state.scenario_desc_df, use_container_width=True, key="scenario_desc_editor")
 
     # Save edited scenario descriptions to session state
     st.session_state['scenario_desc_df'] = edited_scenario_desc_df
@@ -332,10 +350,9 @@ You are an expert sustainability consultant. Based on the following description 
 
     # Editable table for scenario percentages
     try:
-        edited_scenario_df = st.data_editor(scenario_df, use_container_width=True, key="scenario_percent_editor", num_rows="fixed")
+        edited_scenario_df = st.data_editor(scenario_df, use_container_width=True, key="scenario_percent_editor")
     except AttributeError:
-        # Fallback for older Streamlit versions
-        edited_scenario_df = st.experimental_data_editor(scenario_df, use_container_width=True, key="scenario_percent_editor", num_rows="fixed")
+        edited_scenario_df = st.experimental_data_editor(scenario_df, use_container_width=True, key="scenario_percent_editor")
 
     # Update session state with edited scenario percentages
     st.session_state['scenario_percent_df'] = edited_scenario_df
@@ -343,6 +360,43 @@ You are an expert sustainability consultant. Based on the following description 
     # Convert columns (except Item) to numeric
     for col in edited_scenario_df.columns[1:]:
         edited_scenario_df[col] = pd.to_numeric(edited_scenario_df[col], errors='coerce').fillna(100.0)
+
+    # Calculate scenario emissions and savings
+    results = []
+    for col in edited_scenario_df.columns[1:]:
+        usage_percentages = edited_scenario_df[col].values / 100.0
+        scenario_daily_emissions = (bau_data["Daily Usage (Units)"].values 
+                                    * usage_percentages 
+                                    * bau_data["Emission Factor (kg CO₂e/unit)"].values).sum()
+        scenario_annual_emissions = scenario_daily_emissions * 365
+        co2_saving_kg = total_annual_bau - scenario_annual_emissions
+        co2_saving_percent = (co2_saving_kg / total_annual_bau * 100) if total_annual_bau != 0 else 0
+
+        results.append({
+            "Scenario": col.replace(" (%)",""),  # Remove " (%)" from the scenario name
+            "Total Daily Emissions (kg CO₂e)": scenario_daily_emissions,
+            "Total Annual Emissions (kg CO₂e)": scenario_annual_emissions,
+            "CO₂ Saving (kg CO₂e/year)": co2_saving_kg,
+            "CO₂ Saving (%)": co2_saving_percent
+        })
+
+    results_df = pd.DataFrame(results)
+    # Reindex the results to start from 1
+    results_df.index = range(1, len(results_df) + 1)
+
+    st.write("### Scenario Results")
+    st.dataframe(results_df)
+
+    st.subheader("CO₂ Savings Compared to BAU (%)")
+    st.bar_chart(results_df.set_index("Scenario")["CO₂ Saving (%)"], use_container_width=True)
+
+    # Option to download scenario results as CSV
+    st.download_button(
+        label="Download Scenario Results as CSV",
+        data=results_df.to_csv(index=False),
+        file_name="scenario_results.csv",
+        mime="text/csv"
+    )
 
     # ----------------------- Additional Criteria -----------------------
 
@@ -411,8 +465,6 @@ You are an expert sustainability consultant. Based on the following description 
                     # Add the new "Other" criteria to the criteria_options
                     criteria_options[full_crit_name] = other_crit_desc.strip() if other_crit_desc.strip() != "" else "No description provided."
                     # Add to dynamic_other_criteria for persistence
-                    if 'dynamic_other_criteria' not in st.session_state:
-                        st.session_state.dynamic_other_criteria = []
                     st.session_state.dynamic_other_criteria.append(full_crit_name)
                 else:
                     st.warning(f"Criterion '{full_crit_name}' already exists.")
@@ -438,8 +490,6 @@ You are an expert sustainability consultant. Based on the following description 
             full_crit_name = new_other_name.strip()
             if full_crit_name not in criteria_options:
                 criteria_options[full_crit_name] = new_other_desc.strip() if new_other_desc.strip() != "" else "No description provided."
-                if 'dynamic_other_criteria' not in st.session_state:
-                    st.session_state.dynamic_other_criteria = []
                 st.session_state.dynamic_other_criteria.append(full_crit_name)
                 st.success(f"Added new criterion '{full_crit_name}'.")
             else:
@@ -485,7 +535,7 @@ You are an expert sustainability consultant. Based on the following description 
             st.session_state.criteria_df = criteria_df
         else:
             # Update criteria_df columns based on selected_criteria
-            criteria_df = st.session_state.criteria_df.copy()
+            criteria_df = st.session_state.criteria_df
             for c in selected_criteria:
                 if c not in criteria_df.columns:
                     criteria_df[c] = 1
@@ -527,18 +577,16 @@ You are an expert sustainability consultant. Based on the following description 
                 key="criteria_editor",
                 num_rows="dynamic",
                 disabled=False,
-                column_config=column_config,
-                hide_index=True,
-                editable=True
+                column_config=column_config
             )
         except AttributeError:
-            # Fallback for older Streamlit versions
             edited_criteria_df = st.experimental_data_editor(
                 st.session_state.criteria_df,
                 use_container_width=True,
                 key="criteria_editor",
                 num_rows="dynamic",
-                disabled=False
+                disabled=False,
+                column_config=column_config
             )
 
         # Update session state with edited criteria
@@ -547,14 +595,14 @@ You are an expert sustainability consultant. Based on the following description 
     # ----------------------- Run Model -----------------------
 
     # Only proceed if criteria were selected and edited_criteria_df is defined
-    if selected_criteria and 'criteria_df' in st.session_state and not st.session_state.criteria_df.empty:
+    if selected_criteria and 'edited_criteria_df' in st.session_state and not st.session_state.edited_criteria_df.empty:
         if st.button("Run Model"):
             # Check if all required values are filled
-            if st.session_state.criteria_df.isnull().values.any():
+            if st.session_state.edited_criteria_df.isnull().values.any():
                 st.error("Please ensure all criteria values are filled.")
             else:
                 # Create a copy for scaled results
-                scaled_criteria_df = st.session_state.criteria_df.copy()
+                scaled_criteria_df = st.session_state.edited_criteria_df.copy()
 
                 # Define specific criteria to normalize
                 criteria_to_normalize = ["Return on Investment (ROI)(years)", "Initial investment (£)", "Other - Positive Trend", "Other - Negative Trend"]
@@ -613,26 +661,40 @@ You are an expert sustainability consultant. Based on the following description 
                 else:
                     scaled_criteria_df['Normalized Score'] = 5  # Assign a neutral score if all scores are equal
 
-                # Calculate CO₂ Savings
-                scaled_criteria_df['CO₂ Saving (kg CO₂e/year)'] = total_annual_bau - (scaled_criteria_df['Total Score'] - scaled_criteria_df['Normalized Score'])
-                scaled_criteria_df['CO₂ Saving (%)'] = (scaled_criteria_df['CO₂ Saving (kg CO₂e/year)'] / total_annual_bau * 100) if total_annual_bau != 0 else 0
+                # Assign colors based on normalized scores
+                def get_color(score):
+                    if score >= 7:
+                        return 'green'
+                    elif score >= 5:
+                        return 'yellow'
+                    else:
+                        return 'red'
+
+                scaled_criteria_df['Color'] = scaled_criteria_df['Normalized Score'].apply(get_color)
 
                 # Rank the scenarios based on Total Score
                 scaled_criteria_df['Rank'] = scaled_criteria_df['Total Score'].rank(method='min', ascending=False).astype(int)
 
-                st.write("### Scenario Results")
+                st.write("### Normalized Results (Selected Criteria Normalized)")
                 st.dataframe(scaled_criteria_df.round(2))
 
-                st.subheader("CO₂ Savings Compared to BAU (%)")
-                st.bar_chart(scaled_criteria_df.set_index("Scenario")["CO₂ Saving (%)"], use_container_width=True)
-
-                # Option to download scenario results as CSV
-                st.download_button(
-                    label="Download Scenario Results as CSV",
-                    data=scaled_criteria_df.to_csv(index=False),
-                    file_name="scenario_results.csv",
-                    mime="text/csv"
+                # Visualize the normalized scores with color gradients using Altair
+                chart = alt.Chart(scaled_criteria_df).mark_bar().encode(
+                    x=alt.X('Scenario:N', sort='-y'),
+                    y='Normalized Score:Q',
+                    color=alt.Color('Normalized Score:Q',
+                                    scale=alt.Scale(
+                                        domain=[1, 5, 10],
+                                        range=['red', 'yellow', 'green']
+                                    ),
+                                    legend=alt.Legend(title="Normalized Score"))
+                ).properties(
+                    width=700,
+                    height=400,
+                    title="Scenario Scores (Normalized 1-10)"
                 )
+
+                st.altair_chart(chart, use_container_width=True)
 
                 # ----------------------- Enhanced Visualization -----------------------
 
@@ -641,13 +703,14 @@ You are an expert sustainability consultant. Based on the following description 
                 styled_display = styled_display.sort_values('Rank')
 
                 # Apply color formatting based on 'Normalized Score' using Styler.map
-                styled_display_style = styled_display.style.applymap(
-                    lambda x: 'background-color: green' if x >=7 else ('background-color: yellow' if x >=5 else 'background-color: red'),
-                    subset=['Normalized Score']
+                styled_display_style = styled_display.style.map(
+                    {'Normalized Score': styled_display['Normalized Score'].apply(
+                        lambda x: 'background-color: green' if x >=7 else ('background-color: yellow' if x >=5 else 'background-color: red'))
+                    }
                 )
 
                 st.write("### Ranked Scenarios with Gradient Colors")
                 st.dataframe(styled_display_style)
 
-    if __name__ == "__main__":
-        main()
+if __name__ == "__main__":
+    main()
