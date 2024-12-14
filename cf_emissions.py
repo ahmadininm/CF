@@ -14,25 +14,15 @@ import openai  # Reintroduced OpenAI for ChatGPT integration
 
 openai.api_key = st.secrets["OPENAI_API_KEY"]
 
-# ----------------------- OpenAI Test Function -----------------------
+# ----------------------- Test OpenAI Linkage -----------------------
 def test_openai_linkage():
     try:
-        response = openai.ChatCompletion.create(
-            model="gpt-3.5-turbo",
-            messages=[
-                {"role": "system", "content": "You are an OpenAI model."},
-                {"role": "user", "content": "Say hello!"}
-            ],
-            max_tokens=10,
-            temperature=0.7,
-        )
-        message = response['choices'][0]['message']['content'].strip()
-        st.success(f"OpenAI linkage test passed. Response: {message}")
+        response = openai.Model.list()
+        st.success("OpenAI API is working fine.")
     except Exception as e:
-        st.error(f"OpenAI linkage test failed: {e}")
+        st.error(f"OpenAI API test failed: {e}")
 
 # ----------------------- Session State Management -----------------------
-
 def save_session_state():
     """
     Serializes the necessary session state variables into a JSON-compatible dictionary.
@@ -86,7 +76,6 @@ def load_session_state(uploaded_file):
         st.error(f"Failed to load progress: {e}")
 
 # ----------------------- OpenAI Scenario Generation -----------------------
-
 def generate_scenarios(description, num_scenarios):
     """
     Uses OpenAI's GPT model to generate scenario suggestions based on the activities description.
@@ -133,12 +122,11 @@ def generate_scenarios(description, num_scenarios):
         return []
 
 # ----------------------- Main Application -----------------------
-
 def main():
-    # Set page configuration as the first Streamlit command
+    # Set page configuration
     st.set_page_config(page_title="Sustainability Decision Assistant", layout="wide")
-
-    # Run the OpenAI linkage test after setting page config
+    
+    # Test OpenAI Linkage
     test_openai_linkage()
 
     # Main Title and Description
@@ -146,7 +134,6 @@ def main():
     st.write("*A tool to prioritize scenarios for carbon savings and resource efficiency, enabling data-driven sustainable decisions.*")
 
     # ----------------------- Save and Load Progress -----------------------
-    
     st.sidebar.header("🔄 Save and Load Progress")
     
     # Save Progress Button
@@ -166,7 +153,6 @@ def main():
         load_session_state(uploaded_file)
 
     # ----------------------- Initialize Session State -----------------------
-    
     if 'bau_data' not in st.session_state:
         default_items = [
             "Gas (kWh/day)", 
@@ -200,7 +186,6 @@ def main():
         st.session_state.selected_criteria = []
     
     # ----------------------- BAU Inputs -----------------------
-
     st.subheader("Enter Daily Usage for Business As Usual (BAU)")
 
     # Display BAU Inputs
@@ -266,7 +251,6 @@ def main():
     bau_data["Annual Emissions (kg CO₂e)"] = bau_data["Daily Emissions (kg CO₂e)"] * 365
 
     # ----------------------- Ensure BAU Graph Maintains Input Order -----------------------
-
     # Reorder bau_data to ensure default items come first, followed by custom items
     default_items = [
         "Gas (kWh/day)", 
@@ -294,7 +278,6 @@ def main():
     st.bar_chart(bau_data_ordered.set_index("Item")["Daily Emissions (kg CO₂e)"], use_container_width=True)
 
     # ----------------------- Describe Activities to Propose Scenarios -----------------------
-
     st.subheader("Describe Your Organization's Activities")
     st.write("Provide a brief description of your organization's key activities and sustainability goals to help propose relevant scenarios.")
 
@@ -305,7 +288,6 @@ def main():
     )
 
     # ----------------------- Scenario Generation -----------------------
-
     if activities_description.strip() != "":
         st.success("Activities description received. You can now define your scenarios based on this information.")
 
@@ -335,7 +317,6 @@ def main():
                     st.error("No scenarios were generated. Please try again or enter a more detailed description.")
 
     # ----------------------- Define Scenarios -----------------------
-    
     if activities_description.strip() != "" and not st.session_state.edited_scenario_desc_df.empty:
         st.subheader("Define Your Scenarios")
 
@@ -405,6 +386,8 @@ def main():
 
         # Save edited criteria to session state
         st.session_state['edited_criteria_df'] = edited_scenario_df
+
+
 
     # ----------------------- Additional Criteria -----------------------
 
