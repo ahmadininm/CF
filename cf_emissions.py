@@ -29,19 +29,30 @@ def load_session_state(uploaded_file):
     """
     try:
         data = json.load(uploaded_file)
+        
         # Load BAU Data
-        st.session_state.bau_data = pd.read_json(data['bau_data'])
+        bau_data_loaded = pd.read_json(data['bau_data'])
+        # Ensure 'Daily Usage (Units)' is float
+        bau_data_loaded['Daily Usage (Units)'] = pd.to_numeric(bau_data_loaded['Daily Usage (Units)'], errors='coerce').fillna(0.0)
+        st.session_state.bau_data = bau_data_loaded
+        
+        # Load Emission Factors
         st.session_state.emission_factors = data['emission_factors']
         
         # Load Scenario Descriptions
-        st.session_state.edited_scenario_desc_df = pd.read_json(data['scenario_desc_df'])
+        scenario_desc_loaded = pd.read_json(data['scenario_desc_df'])
+        st.session_state.edited_scenario_desc_df = scenario_desc_loaded
         
         # Load Selected Criteria
         st.session_state.selected_criteria = data['selected_criteria']
         
         # Load Criteria Values if available
         if data['edited_criteria_df']:
-            st.session_state.edited_criteria_df = pd.read_json(data['edited_criteria_df'])
+            criteria_values_loaded = pd.read_json(data['edited_criteria_df'])
+            # Ensure all numeric criteria are float
+            numeric_cols = criteria_values_loaded.columns.drop('Scenario')
+            criteria_values_loaded[numeric_cols] = criteria_values_loaded[numeric_cols].apply(pd.to_numeric, errors='coerce').fillna(1.0)
+            st.session_state.edited_criteria_df = criteria_values_loaded
         
         st.success("Progress loaded successfully!")
     except Exception as e:
