@@ -6,11 +6,8 @@ import json
 import altair as alt  # For advanced visualizations
 import logging
 
-# Configure logging
-logging.basicConfig(
-    format='%(asctime)s - %(levelname)s - %(message)s',
-    level=logging.INFO
-)
+# Set up logging
+logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 # Initialize OpenAI API (Ensure you have the latest OpenAI SDK installed)
@@ -249,7 +246,6 @@ You are an expert sustainability consultant. Based on the following description 
                     temperature=0.7,
                 )
                 ai_output = response['choices'][0]['message']['content'].strip()
-                logger.info(f"AI Output: {ai_output}")
 
                 # Parse the AI output into a list of scenarios
                 scenarios = []
@@ -266,10 +262,8 @@ You are an expert sustainability consultant. Based on the following description 
                     st.success("Proposed scenarios generated successfully!")
             
             except OpenAIError as e:
-                logger.error(f"OpenAI API Error: {e}")
-                st.error(f"OpenAI API Error: {e}")
+                st.error(f"Error with OpenAI API: {e}")
             except Exception as e:
-                logger.error(f"Unexpected Error: {e}")
                 st.error(f"An unexpected error occurred: {e}")
 
     # Display Proposed Scenarios
@@ -712,5 +706,5 @@ You are an expert sustainability consultant. Based on the following description 
                 st.write("### Ranked Scenarios with Gradient Colors")
                 st.dataframe(styled_display_style)
 
-if __name__ == "__main__":
-    main()
+    if __name__ == "__main__":
+        main()
