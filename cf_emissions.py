@@ -6,6 +6,8 @@ import altair as alt  # For advanced visualizations
 import base64
 from io import BytesIO
 import openai  # Reintroduced OpenAI for ChatGPT integration
+import importlib.metadata
+import pkg_resources
 
 # ----------------------- OpenAI Configuration -----------------------
 # Ensure you have set your OpenAI API key in Streamlit secrets as follows:
@@ -13,20 +15,23 @@ import openai  # Reintroduced OpenAI for ChatGPT integration
 # API_KEY = "your-openai-api-key"
 
 openai.api_key = st.secrets["OPENAI_API_KEY"]
-def main():
-    # ... existing code ...
 
-    # Verify OpenAI Package Version
+# ----------------------- Helper Functions -----------------------
+def get_openai_version_importlib():
     try:
-        openai_version = openai.__version__
-        st.sidebar.write(f"**Installed OpenAI Version:** {openai_version}")
-    except AttributeError:
-        st.sidebar.write("**Installed OpenAI Version:** Not found")
+        version = importlib.metadata.version('openai')
+        return version
+    except importlib.metadata.PackageNotFoundError:
+        return "Package not found."
 
+def get_openai_version_pkg_resources():
+    try:
+        version = pkg_resources.get_distribution("openai").version
+        return version
+    except pkg_resources.DistributionNotFound:
+        return "Package not found."
 
 # ----------------------- Test OpenAI Linkage -----------------------
-
-
 def test_openai_linkage():
     try:
         # Attempt a simple API call to test linkage
@@ -39,10 +44,13 @@ def test_openai_linkage():
             max_tokens=10,
             temperature=0.7,
         )
-        message = response['choices'][0]['message']['content'].strip()
+        # Use attribute access instead of dict-style
+        message = response.choices[0].message.content.strip()
         st.success(f"OpenAI API is working fine. Response: {message}")
-    except Exception as e:
+    except openai.error.OpenAIError as e:
         st.error(f"OpenAI API test failed: {e}")
+    except Exception as e:
+        st.error(f"Unexpected error: {e}")
 
 # ----------------------- Session State Management -----------------------
 def save_session_state():
@@ -125,7 +133,8 @@ def generate_scenarios(description, num_scenarios):
             max_tokens=500,
             temperature=0.7,
         )
-        scenarios_text = response['choices'][0]['message']['content'].strip()
+        # Use attribute access instead of dict-style
+        scenarios_text = response.choices[0].message.content.strip()
         # Split scenarios based on numbering
         scenarios = []
         for scenario in scenarios_text.split('\n'):
@@ -151,13 +160,15 @@ def main():
     # Set page configuration
     st.set_page_config(page_title="Sustainability Decision Assistant", layout="wide")
     
-    # Display OpenAI package version
-    st.sidebar.write("### OpenAI Package Version")
-    try:
-        openai_version = openai.__version__
-        st.sidebar.write(f"**Installed OpenAI Version:** {openai_version}")
-    except AttributeError:
-        st.sidebar.write("**Installed OpenAI Version:** Not found")
+    # Display OpenAI package version using importlib.metadata
+    st.sidebar.write("### OpenAI Package Version (importlib.metadata)")
+    openai_version = get_openai_version_importlib()
+    st.sidebar.write(f"**Installed OpenAI Version:** {openai_version}")
+    
+    # Display OpenAI package version using pkg_resources
+    st.sidebar.write("### OpenAI Package Version (pkg_resources)")
+    openai_version_pkg = get_openai_version_pkg_resources()
+    st.sidebar.write(f"**Installed OpenAI Version:** {openai_version_pkg}")
     
     # Test OpenAI Linkage
     test_openai_linkage()
