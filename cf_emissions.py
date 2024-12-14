@@ -9,6 +9,9 @@ import openai  # Reintroduced OpenAI for ChatGPT integration
 import importlib.metadata
 import pkg_resources
 
+# Import specific exceptions from openai.error
+from openai.error import InvalidRequestError, AuthenticationError, RateLimitError, OpenAIError
+
 # ----------------------- OpenAI Configuration -----------------------
 # Ensure you have set your OpenAI API key in Streamlit secrets as follows:
 # [OPENAI]
@@ -46,18 +49,16 @@ def test_openai_linkage():
         )
         message = response.choices[0].message.content.strip()
         st.success(f"OpenAI API is working fine. Response: {message}")
-    except openai.error.InvalidRequestError as e:
+    except InvalidRequestError as e:
         st.error(f"OpenAI API test failed: {e}")
-    except openai.error.AuthenticationError as e:
+    except AuthenticationError as e:
         st.error(f"Authentication failed: {e}")
-    except openai.error.RateLimitError as e:
+    except RateLimitError as e:
         st.error(f"Rate limit exceeded: {e}")
-    except openai.error.OpenAIError as e:
+    except OpenAIError as e:
         st.error(f"OpenAI API error: {e}")
     except Exception as e:
         st.error(f"Unexpected error: {e}")
-
-# Replace the existing test_openai_linkage function with this code in your cf_emissions.py file.
 
 # ----------------------- Session State Management -----------------------
 def save_session_state():
@@ -155,7 +156,7 @@ def generate_scenarios(description, num_scenarios):
                     name, desc = name_desc.split(':', 1)
                     scenarios.append({"name": name.strip(), "description": desc.strip()})
         return scenarios
-    except openai.error.OpenAIError as e:
+    except OpenAIError as e:
         st.error(f"OpenAI API Error: {e}")
         return []
     except Exception as e:
@@ -176,6 +177,9 @@ def main():
     st.sidebar.write("### OpenAI Package Version (pkg_resources)")
     openai_version_pkg = get_openai_version_pkg_resources()
     st.sidebar.write(f"**Installed OpenAI Version:** {openai_version_pkg}")
+    
+    # Optionally, display the OpenAI package version in the main app for verification
+    # st.write(f"OpenAI package version: {openai.__version__}")
     
     # Test OpenAI Linkage
     test_openai_linkage()
