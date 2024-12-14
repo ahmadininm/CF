@@ -8,9 +8,6 @@ from io import BytesIO
 import openai  # For OpenAI API integration
 import importlib.metadata
 
-# It's recommended to remove pkg_resources if not needed
-# import pkg_resources
-
 # Import specific exceptions from openai.error instead of openai
 from openai.error import InvalidRequestError, AuthenticationError, RateLimitError, OpenAIError
 
@@ -21,9 +18,6 @@ from openai.error import InvalidRequestError, AuthenticationError, RateLimitErro
 
 openai.api_key = st.secrets["OPENAI_API_KEY"]
 
-
-
-
 # ----------------------- Helper Functions -----------------------
 def get_openai_version_importlib():
     try:
@@ -32,12 +26,7 @@ def get_openai_version_importlib():
     except importlib.metadata.PackageNotFoundError:
         return "Package not found."
 
-def get_openai_version_pkg_resources():
-    try:
-        version = pkg_resources.get_distribution("openai").version
-        return version
-    except pkg_resources.DistributionNotFound:
-        return "Package not found."
+# Removed pkg_resources related functions
 
 # ----------------------- Test OpenAI Linkage -----------------------
 def test_openai_linkage():
@@ -177,11 +166,6 @@ def main():
     st.sidebar.write("### OpenAI Package Version (importlib.metadata)")
     openai_version = get_openai_version_importlib()
     st.sidebar.write(f"**Installed OpenAI Version:** {openai_version}")
-    
-    # Display OpenAI package version using pkg_resources
-    st.sidebar.write("### OpenAI Package Version (pkg_resources)")
-    openai_version_pkg = get_openai_version_pkg_resources()
-    st.sidebar.write(f"**Installed OpenAI Version:** {openai_version_pkg}")
     
     # Optionally, display the OpenAI package version in the main app for verification
     # st.write(f"OpenAI package version: {openai.__version__}")
