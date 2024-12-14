@@ -2,7 +2,6 @@ import pandas as pd
 import streamlit as st
 import numpy as np
 import openai
-import altair as alt
 import logging
 
 # Configure logging
@@ -170,6 +169,7 @@ def main():
     st.session_state.bau_data["Annual Emissions (kg CO₂e)"] = st.session_state.bau_data["Daily Emissions (kg CO₂e)"] * 365
 
     # **Preserve Input Order**
+    # Separate default and custom items, ensuring default items come first
     default_items = [
         "Gas (kWh/day)", 
         "Electricity (kWh/day)", 
@@ -178,11 +178,9 @@ def main():
         "Argon (m³/day)", 
         "Helium (m³/day)"
     ]
-    # Separate default and custom items
-    default_bau = st.session_state.bau_data[st.session_state.bau_data["Item"].isin(default_items)]
-    custom_bau = st.session_state.bau_data[~st.session_state.bau_data["Item"].isin(default_items)]
-    # Concatenate to maintain order: defaults first, then customs
-    bau_data_ordered = pd.concat([default_bau, custom_bau], ignore_index=True)
+    # Create an ordered list based on input order
+    ordered_items = default_items + [item for item in st.session_state.bau_data["Item"] if item not in default_items]
+    bau_data_ordered = st.session_state.bau_data.set_index('Item').loc[ordered_items].reset_index()
     st.session_state.bau_data_ordered = bau_data_ordered  # Store ordered BAU data
 
     # Display BAU summary
@@ -525,14 +523,17 @@ You are an expert sustainability consultant. Based on the following description 
             # Assign scenario names from scenario_desc_df
             criteria_df["Scenario"] = st.session_state.scenario_desc_df["Scenario"].tolist()
             for c in selected_criteria:
-                criteria_df[c] = 1
+                if c in scale_criteria:
+                    criteria_df[c] = 1  # Initialize with 1 for (1-10) criteria
+                else:
+                    criteria_df[c] = 1  # Initialize with 1 or appropriate default
             st.session_state.criteria_df = criteria_df
         else:
             # Update criteria_df columns based on selected_criteria
             criteria_df = st.session_state.criteria_df.copy()
             for c in selected_criteria:
                 if c not in criteria_df.columns:
-                    criteria_df[c] = 1
+                    criteria_df[c] = 1  # Initialize new criteria
             # Remove criteria that are no longer selected
             for c in list(criteria_df.columns):
                 if c not in selected_criteria and c != "Scenario":
@@ -561,7 +562,14 @@ You are an expert sustainability consultant. Based on the following description 
                     # No additional constraints
                 )
 
-        st.write("Please assign values for each selected criterion to each scenario. Double-click a cell to edit. For (1-10) criteria, only enter values between 1 and 10.")
+        st.write("### Assign Criteria Values to Each Scenario")
+
+        st.write("""
+        **Instructions:**
+        - For scale-based criteria (1-10), assign a value between **1** (least favorable) and **10** (most favorable).
+        - For other criteria, assign values as appropriate based on your organization's needs.
+        - Double-click a cell to edit its value.
+        """)
 
         # Editable table for criteria values with input constraints
         try:
@@ -661,11 +669,8 @@ You are an expert sustainability consultant. Based on the following description 
                     st.stop()
 
                 # Calculate emissions for each scenario
-                # Assuming 'Daily Emissions (kg CO₂e)' is the BAU daily emissions
-                # Multiply by (percentage / 100) to get scenario emissions
+                # Multiply BAU emissions by (percentage / 100) to get scenario emissions
                 bau_daily_emissions = st.session_state.bau_data_ordered.set_index('Item')['Daily Emissions (kg CO₂e)']
-
-                # Initialize a DataFrame to hold scenario emissions
                 scenario_emissions = pd.DataFrame(index=bau_daily_emissions.index)
 
                 for scenario in scenario_percent_df.columns[1:]:
@@ -676,7 +681,10 @@ You are an expert sustainability consultant. Based on the following description 
 
                 # Calculate CO₂ Savings
                 total_annual_bau = st.session_state.bau_data_ordered['Annual Emissions (kg CO₂e)'].sum()
-                co2_saving_percentage = ((total_annual_bau - scenario_annual_emissions) / total_annual_bau * 100) if total_annual_bau != 0 else 0
+                if total_annual_bau != 0:
+                    co2_saving_percentage = ((total_annual_bau - scenario_annual_emissions) / total_annual_bau) * 100
+                else:
+                    co2_saving_percentage = pd.Series([0.0] * len(scenario_annual_emissions), index=scenario_annual_emissions.index)
 
                 # Add CO₂ Savings to scaled_criteria_df
                 scaled_criteria_df['CO₂ Saving (kg CO₂e/year)'] = total_annual_bau - scenario_annual_emissions
@@ -720,12 +728,11 @@ You are an expert sustainability consultant. Based on the following description 
                 st.write("### Ranked Scenarios with Gradient Colors")
                 st.dataframe(styled_display_style)
 
-                # ----------------------- Validate and Alert -----------------------
+                # ----------------------- Highlight Top Scenario -----------------------
 
-                # Optionally, provide alerts based on ranking or savings
                 top_scenario = scaled_criteria_df.loc[scaled_criteria_df['Rank'] == 1, 'Scenario'].values
                 if len(top_scenario) > 0:
                     st.success(f"The top-ranked scenario is **{top_scenario[0]}** with the highest carbon savings.")
 
-if __name__ == "__main__":
-    main()
+    if __name__ == "__main__":
+        main()
