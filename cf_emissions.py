@@ -12,7 +12,7 @@ except ImportError:
     OpenAIError = Exception  # Fallback for older SDK versions
 
 def initialize_session_state():
-    """Initialize session state variables if they don't exist."""
+    # Initialize session state variables if they don't exist
     if 'bau_data' not in st.session_state:
         default_items = [
             "Gas (kWh/day)", 
@@ -40,16 +40,13 @@ def initialize_session_state():
         st.session_state.scenario_desc_df = pd.DataFrame(columns=["Scenario", "Description"])
     
     if 'criteria_df' not in st.session_state:
-        st.session_state.criteria_df = pd.DataFrame(columns=["Scenario"])
+        st.session_state.criteria_df = pd.DataFrame()
     
     if 'selected_criteria' not in st.session_state:
         st.session_state.selected_criteria = []
     
     if 'edited_criteria_df' not in st.session_state:
         st.session_state.edited_criteria_df = pd.DataFrame()
-    
-    if 'dynamic_other_criteria' not in st.session_state:
-        st.session_state.dynamic_other_criteria = []
 
 def main():
     # Initialize session state
@@ -119,24 +116,22 @@ def main():
                 f"Custom Item {i + 1} Emission Factor (kg CO₂e/unit):", 
                 min_value=0.0000001, 
                 step=0.0000001, 
-                value=0.0000001,
+                value=emission_factors.get(item_name.strip(), 0.0000001) if item_name.strip() != "" else 0.0000001,
                 key=f"custom_emission_factor_{i}"
             )
             usage = st.number_input(
                 f"Custom Item {i + 1} Daily Usage (Units):", 
                 min_value=0.0, 
                 step=0.1, 
-                value=0.0,
+                value=bau_data[bau_data["Item"] == item_name.strip()]["Daily Usage (Units)"].values[0] if item_name.strip() != "" else 0.0,
                 key=f"custom_usage_{i}"
             )
-            # Add to BAU Data if item name is provided and not duplicate
+            # Add to BAU Data if item name is provided
             if item_name.strip() != "":
                 if item_name.strip() not in bau_data["Item"].values:
                     new_row = pd.DataFrame({"Item": [item_name.strip()], "Daily Usage (Units)": [usage]})
                     st.session_state.bau_data = pd.concat([bau_data, new_row], ignore_index=True)
                     st.session_state.emission_factors[item_name.strip()] = emission_factor
-                    # Update 'bau_data' variable to include new row
-                    bau_data = st.session_state.bau_data
                 else:
                     st.warning(f"Item '{item_name.strip()}' already exists.")
 
@@ -268,18 +263,11 @@ def main():
 
     # Define scale-based criteria globally, including 'Other - Negative Trend'
     scale_criteria = {
-        "Technical Feasibility", 
-        "Supplier Reliability and Technology Readiness", 
-        "Implementation Complexity",
-        "Scalability", 
-        "Maintenance Requirements", 
-        "Regulatory Compliance", 
-        "Risk for Workforce Safety",
-        "Risk for Operations", 
-        "Impact on Product Quality", 
-        "Customer and Stakeholder Alignment",
+        "Technical Feasibility", "Supplier Reliability and Technology Readiness", "Implementation Complexity",
+        "Scalability", "Maintenance Requirements", "Regulatory Compliance", "Risk for Workforce Safety",
+        "Risk for Operations", "Impact on Product Quality", "Customer and Stakeholder Alignment",
         "Priority for our organisation",
-        "Other - Negative Trend"  # For inversion
+        "Other - Negative Trend"  # Including 'Other - Negative Trend' for inversion
     }
 
     # Criteria options with brief, color-coded descriptions for the 1-10 scale criteria
@@ -301,162 +289,165 @@ def main():
         "Other - Negative Trend": "Enter criteria where a higher number is less beneficial."
     }
 
-    # Allow adding multiple "Other" criteria dynamically
-    selected_other_trends = [crit for crit in st.session_state.selected_criteria if crit in ["Other - Positive Trend", "Other - Negative Trend"]]
-    
-    # Initialize list to keep track of dynamically added "Other" criteria
-    for trend in selected_other_trends:
-        st.write(f"### {trend}")
-        num_other = st.number_input(
-            f"How many '{trend}' criteria would you like to add?",
-            min_value=1,
-            step=1,
-            value=1,
-            key=f"num_{trend.replace(' ', '_')}_input"
+    # Allow adding multiple "Other" criteria with trend specification
+    if "Other - Positive Trend" in criteria_options and "Other - Negative Trend" in criteria_options:
+        # Let user select criteria
+        selected_criteria = st.multiselect(
+            "Select the criteria you want to consider:",
+            list(criteria_options.keys()),
+            key="selected_criteria_multiselect"
         )
-        for i in range(int(num_other)):
-            other_crit_name = st.text_input(
-                f"{trend} Criterion {i+1} Name:",
-                key=f"{trend.replace(' ', '_')}_name_{i}"
+    
+        # Allow adding multiple "Other" criteria dynamically
+        other_trend_options = ["Other - Positive Trend", "Other - Negative Trend"]
+        selected_other_trends = [crit for crit in selected_criteria if crit in other_trend_options]
+        
+        # Initialize list to keep track of dynamically added "Other" criteria
+        if 'dynamic_other_criteria' not in st.session_state:
+            st.session_state.dynamic_other_criteria = []
+
+        for trend in selected_other_trends:
+            st.write(f"### {trend}")
+            num_other = st.number_input(
+                f"How many '{trend}' criteria would you like to add?",
+                min_value=1,
+                step=1,
+                value=1,
+                key=f"num_{trend.replace(' ', '_')}_input"
             )
-            other_crit_desc = st.text_input(
-                f"{trend} Criterion {i+1} Description:",
-                key=f"{trend.replace(' ', '_')}_desc_{i}"
+            for i in range(int(num_other)):
+                other_crit_name = st.text_input(
+                    f"{trend} Criterion {i+1} Name:",
+                    key=f"{trend.replace(' ', '_')}_name_{i}"
+                )
+                other_crit_desc = st.text_input(
+                    f"{trend} Criterion {i+1} Description:",
+                    key=f"{trend.replace(' ', '_')}_desc_{i}"
+                )
+                if other_crit_name.strip() != "":
+                    full_crit_name = other_crit_name.strip()
+                    if full_crit_name not in criteria_options:
+                        # Add the new "Other" criteria to the criteria_options
+                        criteria_options[full_crit_name] = other_crit_desc.strip() if other_crit_desc.strip() != "" else "No description provided."
+                        # Add to dynamic_other_criteria for persistence
+                        st.session_state.dynamic_other_criteria.append(full_crit_name)
+                    else:
+                        st.warning(f"Criterion '{full_crit_name}' already exists.")
+        
+        # Allow adding new "Other" criteria beyond initial selections
+        st.write("### Add More 'Other' Criteria")
+        add_more_other = st.checkbox("Add more 'Other' criteria", key="add_more_other_checkbox")
+        if add_more_other:
+            new_other_trend = st.selectbox(
+                "Select trend type for the new 'Other' criterion:",
+                ["Other - Positive Trend", "Other - Negative Trend"],
+                key="new_other_trend_select"
             )
-            if other_crit_name.strip() != "":
-                full_crit_name = other_crit_name.strip()
+            new_other_name = st.text_input(
+                "Enter the name for the new 'Other' criterion:",
+                key="new_other_name_input"
+            )
+            new_other_desc = st.text_input(
+                "Enter a brief description for the new 'Other' criterion:",
+                key="new_other_desc_input"
+            )
+            if new_other_name.strip() != "":
+                full_crit_name = new_other_name.strip()
                 if full_crit_name not in criteria_options:
-                    # Add the new "Other" criteria to the criteria_options
-                    criteria_options[full_crit_name] = other_crit_desc.strip() if other_crit_desc.strip() != "" else "No description provided."
-                    # Add to dynamic_other_criteria for persistence
+                    criteria_options[full_crit_name] = new_other_desc.strip() if new_other_desc.strip() != "" else "No description provided."
                     st.session_state.dynamic_other_criteria.append(full_crit_name)
+                    st.success(f"Added new criterion '{full_crit_name}'.")
                 else:
                     st.warning(f"Criterion '{full_crit_name}' already exists.")
 
-    # Allow adding new "Other" criteria beyond initial selections
-    st.write("### Add More 'Other' Criteria")
-    add_more_other = st.checkbox("Add more 'Other' criteria", key="add_more_other_checkbox")
-    if add_more_other:
-        new_other_trend = st.selectbox(
-            "Select trend type for the new 'Other' criterion:",
-            ["Other - Positive Trend", "Other - Negative Trend"],
-            key="new_other_trend_select"
+    else:
+        # If no "Other" trends are selected, allow adding "Other" criteria
+        selected_criteria = st.multiselect(
+            "Select the criteria you want to consider:",
+            list(criteria_options.keys()),
+            key="selected_criteria_multiselect"
         )
-        new_other_name = st.text_input(
-            "Enter the name for the new 'Other' criterion:",
-            key="new_other_name_input"
-        )
-        new_other_desc = st.text_input(
-            "Enter a brief description for the new 'Other' criterion:",
-            key="new_other_desc_input"
-        )
-        if new_other_name.strip() != "":
-            full_crit_name = new_other_name.strip()
-            if full_crit_name not in criteria_options:
-                criteria_options[full_crit_name] = new_other_desc.strip() if new_other_desc.strip() != "" else "No description provided."
-                st.session_state.dynamic_other_criteria.append(full_crit_name)
-                st.success(f"Added new criterion '{full_crit_name}'.")
-            else:
-                st.warning(f"Criterion '{full_crit_name}' already exists.")
-
-    # Let user select criteria
-    selected_criteria = st.multiselect(
-        "Select the criteria you want to consider:",
-        list(criteria_options.keys()),
-        key="selected_criteria_multiselect"
-    )
-    st.session_state.selected_criteria = selected_criteria  # Update session state
 
     # Show descriptions for selected criteria (with HTML enabled)
     for crit in selected_criteria:
         st.markdown(f"**{crit}:** {criteria_options[crit]}", unsafe_allow_html=True)
 
-    # Define scale-based criteria globally, including 'Other - Negative Trend'
-    scale_criteria = {
-        "Technical Feasibility", 
-        "Supplier Reliability and Technology Readiness", 
-        "Implementation Complexity",
-        "Scalability", 
-        "Maintenance Requirements", 
-        "Regulatory Compliance", 
-        "Risk for Workforce Safety",
-        "Risk for Operations", 
-        "Impact on Product Quality", 
-        "Customer and Stakeholder Alignment",
-        "Priority for our organisation",
-        "Other - Negative Trend"  # For inversion
-    }
-
     # If criteria selected, display an editable table for scenarios vs criteria
     if selected_criteria:
-        # Initialize or update criteria_df in session state
-        if st.session_state.criteria_df.empty:
-            criteria_df = pd.DataFrame(columns=["Scenario"] + selected_criteria)
-            if 'results_df' in locals() and not results_df.empty:
-                criteria_df["Scenario"] = results_df["Scenario"].tolist()
-            else:
-                criteria_df["Scenario"] = ["Scenario 1"]  # Default if no scenarios defined
-            for c in selected_criteria:
-                criteria_df[c] = 1
-            st.session_state.criteria_df = criteria_df
+        # Create a DataFrame with one column per scenario
+        if 'scenario_percent_df' in st.session_state:
+            scenario_percent_df = st.session_state.scenario_percent_df
+            results_df = results_df  # Already defined above
         else:
-            # Update criteria_df columns based on selected_criteria
-            criteria_df = st.session_state.criteria_df
-            for c in selected_criteria:
-                if c not in criteria_df.columns:
+            scenario_percent_df = pd.DataFrame()
+
+        if not results_df.empty:
+            scenario_names = results_df["Scenario"].tolist()
+            # Initialize or update criteria_df in session state
+            if st.session_state.criteria_df.empty:
+                criteria_df = pd.DataFrame(columns=["Scenario"] + selected_criteria)
+                criteria_df["Scenario"] = scenario_names
+                for c in selected_criteria:
                     criteria_df[c] = 1
-            # Remove criteria that are no longer selected
-            for c in list(criteria_df.columns):
-                if c not in selected_criteria and c != "Scenario":
-                    criteria_df = criteria_df.drop(columns=[c])
-            st.session_state.criteria_df = criteria_df
-
-        # Define column configurations
-        column_config = {
-            "Scenario": st.column_config.TextColumn(
-                "Scenario",
-                disabled=True  # Make Scenario column read-only
-            )
-        }
-
-        for c in selected_criteria:
-            if c in scale_criteria:
-                column_config[c] = st.column_config.NumberColumn(
-                    label=c,
-                    format="%.0f",           # Ensures integer input
-                    min_value=1, 
-                    max_value=10
-                )
+                st.session_state.criteria_df = criteria_df
             else:
-                column_config[c] = st.column_config.NumberColumn(
-                    label=c
-                    # No additional constraints
+                # Update criteria_df columns based on selected_criteria
+                criteria_df = st.session_state.criteria_df
+                for c in selected_criteria:
+                    if c not in criteria_df.columns:
+                        criteria_df[c] = 1
+                # Remove criteria that are no longer selected
+                for c in criteria_df.columns[1:]:
+                    if c not in selected_criteria:
+                        criteria_df = criteria_df.drop(columns=[c])
+                st.session_state.criteria_df = criteria_df
+
+            # Define column configurations
+            column_config = {
+                "Scenario": st.column_config.TextColumn(
+                    "Scenario"
+                    # Read-only by default
+                )
+            }
+
+            for c in selected_criteria:
+                if c in scale_criteria:
+                    column_config[c] = st.column_config.NumberColumn(
+                        label=c,
+                        format="%.0f",           # Ensures integer input
+                        min_value=1, 
+                        max_value=10
+                    )
+                else:
+                    column_config[c] = st.column_config.NumberColumn(
+                        label=c
+                        # No additional constraints
+                    )
+
+            st.write("Please assign values for each selected criterion to each scenario. Double-click a cell to edit. For (1-10) criteria, only enter values between 1 and 10.")
+
+            # Editable table for criteria values with input constraints
+            try:
+                edited_criteria_df = st.data_editor(
+                    st.session_state.criteria_df,
+                    use_container_width=True,
+                    key="criteria_editor",
+                    num_rows="dynamic",
+                    disabled=False,
+                    column_config=column_config
+                )
+            except AttributeError:
+                edited_criteria_df = st.experimental_data_editor(
+                    st.session_state.criteria_df,
+                    use_container_width=True,
+                    key="criteria_editor",
+                    num_rows="dynamic",
+                    disabled=False,
+                    column_config=column_config
                 )
 
-        st.write("Please assign values for each selected criterion to each scenario. Double-click a cell to edit. For (1-10) criteria, only enter values between 1 and 10.")
-
-        # Editable table for criteria values with input constraints
-        try:
-            edited_criteria_df = st.data_editor(
-                st.session_state.criteria_df,
-                use_container_width=True,
-                key="criteria_editor",
-                num_rows="dynamic",
-                disabled=False,
-                column_config=column_config
-            )
-        except AttributeError:
-            edited_criteria_df = st.experimental_data_editor(
-                st.session_state.criteria_df,
-                use_container_width=True,
-                key="criteria_editor",
-                num_rows="dynamic",
-                disabled=False,
-                column_config=column_config
-            )
-
-        # Update session state with edited criteria
-        st.session_state.criteria_df = edited_criteria_df
+            # Update session state with edited criteria
+            st.session_state.criteria_df = edited_criteria_df
 
     # ----------------------- AI-Based Scoring -----------------------
 
@@ -646,5 +637,5 @@ You are an expert sustainability analyst. Based on the following scenario descri
                 st.write("### Ranked Scenarios with Gradient Colors")
                 st.dataframe(styled_display_style)
 
-if __name__ == "__main__":
-    main()
+    if __name__ == "__main__":
+        main()
