@@ -10,7 +10,10 @@ import importlib.metadata
 import pkg_resources
 
 # Import specific exceptions from openai.error
+from openai import InvalidRequestError, AuthenticationError, RateLimitError, OpenAIError
+
 from openai.error import InvalidRequestError, AuthenticationError, RateLimitError, OpenAIError
+
 
 # ----------------------- OpenAI Configuration -----------------------
 # Ensure you have set your OpenAI API key in Streamlit secrets as follows:
