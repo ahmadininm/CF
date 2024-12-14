@@ -342,7 +342,8 @@ You are an expert sustainability consultant. Based on the following description 
             num_rows="fixed",
             disabled=False,
             column_config={
-                "Item": st.column_config.TextColumn(label="Item", disabled=True)
+                "Item": st.column_config.TextColumn(label="Item", disabled=True),
+                **{f"{row['Scenario']} (%)": st.column_config.NumberColumn(label=f"{row['Scenario']} (%)", min_value=0.0, max_value=100.0) for index, row in st.session_state.scenario_desc_df.iterrows()}
             }
         )
     except TypeError as e:
@@ -583,76 +584,55 @@ You are an expert sustainability consultant. Based on the following description 
                 criteria_to_normalize = ["Return on Investment (ROI)(years)", "Initial investment (£)", "Other - Positive Trend", "Other - Negative Trend"]
 
                 # Now scale each criterion
-                for crit in selected_criteria:
-                    if crit not in criteria_to_normalize:
-                        continue  # Skip criteria that don't need normalization
+                for crit in criteria_to_normalize:
+                    if crit in scaled_criteria_df.columns:
+                        try:
+                            values = scaled_criteria_df[crit].astype(float).values
+                        except:
+                            scaled_criteria_df[crit] = 5  # Assign neutral score if conversion fails
+                            values = scaled_criteria_df[crit].astype(float).values
 
-                    try:
-                        values = scaled_criteria_df[crit].astype(float).values
-                    except:
-                        scaled_criteria_df[crit] = 5  # Assign neutral score if conversion fails
-                        values = scaled_criteria_df[crit].astype(float).values
+                        min_val = np.min(values)
+                        max_val = np.max(values)
 
-                    min_val = np.min(values)
-                    max_val = np.max(values)
+                        if crit == "Other - Positive Trend":
+                            # Higher is better: scale to 10
+                            if max_val == min_val:
+                                scaled_values = np.ones_like(values) * 10 if min_val != 0 else np.zeros_like(values)
+                            else:
+                                scaled_values = 1 + 9 * (values - min_val) / (max_val - min_val)
+                            scaled_criteria_df[crit] = scaled_values
+                        elif crit == "Other - Negative Trend":
+                            # Higher is worse: reverse scale
+                            if max_val == min_val:
+                                scaled_values = np.ones_like(values) * 10 if min_val != 0 else np.zeros_like(values)
+                            else:
+                                scaled_values = 10 - 9 * (values - min_val) / (max_val - min_val)
+                            scaled_criteria_df[crit] = scaled_values
+                        elif crit == "Return on Investment (ROI)(years)":
+                            # Lower ROI is better: reverse scale
+                            if max_val == min_val:
+                                scaled_values = np.ones_like(values) * 10 if min_val != 0 else np.zeros_like(values)
+                            else:
+                                scaled_values = 10 - 9 * (values - min_val) / (max_val - min_val)
+                            scaled_criteria_df[crit] = scaled_values
+                        elif crit == "Initial investment (£)":
+                            # Lower investment is better: reverse scale
+                            if max_val == min_val:
+                                scaled_values = np.ones_like(values) * 10 if min_val != 0 else np.zeros_like(values)
+                            else:
+                                scaled_values = 10 - 9 * (values - min_val) / (max_val - min_val)
+                            scaled_criteria_df[crit] = scaled_values
 
-                    if crit == "Other - Positive Trend":
-                        # Higher is better: scale to 10
-                        if max_val == min_val:
-                            scaled_values = np.ones_like(values) * 10 if min_val != 0 else np.zeros_like(values)
-                        else:
-                            scaled_values = 1 + 9 * (values - min_val) / (max_val - min_val)
-                        scaled_criteria_df[crit] = scaled_values
-                    elif crit == "Other - Negative Trend":
-                        # Higher is worse: reverse scale
-                        if max_val == min_val:
-                            scaled_values = np.ones_like(values) * 10 if min_val != 0 else np.zeros_like(values)
-                        else:
-                            scaled_values = 10 - 9 * (values - min_val) / (max_val - min_val)
-                        scaled_criteria_df[crit] = scaled_values
-                    elif crit == "Return on Investment (ROI)(years)":
-                        # Lower ROI is better: reverse scale
-                        if max_val == min_val:
-                            scaled_values = np.ones_like(values) * 10 if min_val != 0 else np.zeros_like(values)
-                        else:
-                            scaled_values = 10 - 9 * (values - min_val) / (max_val - min_val)
-                        scaled_criteria_df[crit] = scaled_values
-                    elif crit == "Initial investment (£)":
-                        # Lower investment is better: reverse scale
-                        if max_val == min_val:
-                            scaled_values = np.ones_like(values) * 10 if min_val != 0 else np.zeros_like(values)
-                        else:
-                            scaled_values = 10 - 9 * (values - min_val) / (max_val - min_val)
-                        scaled_criteria_df[crit] = scaled_values
-
-                # Calculate the sum of normalized criteria for each scenario
+                # Calculate the total score by summing all criteria
                 scaled_criteria_df['Total Score'] = scaled_criteria_df[selected_criteria].sum(axis=1)
-
-                # Normalize the total scores between 1 and 10
-                min_score = scaled_criteria_df['Total Score'].min()
-                max_score = scaled_criteria_df['Total Score'].max()
-                if max_score != min_score:
-                    scaled_criteria_df['Normalized Score'] = 1 + 9 * (scaled_criteria_df['Total Score'] - min_score) / (max_score - min_score)
-                else:
-                    scaled_criteria_df['Normalized Score'] = 5  # Assign a neutral score if all scores are equal
-
-                # Assign colors based on normalized scores
-                def get_color(score):
-                    if score >= 7:
-                        return 'green'
-                    elif score >= 5:
-                        return 'yellow'
-                    else:
-                        return 'red'
-
-                scaled_criteria_df['Color'] = scaled_criteria_df['Normalized Score'].apply(get_color)
 
                 # Rank the scenarios based on Total Score
                 scaled_criteria_df['Rank'] = scaled_criteria_df['Total Score'].rank(method='min', ascending=False).astype(int)
 
                 # Calculate CO₂ Savings
                 total_annual_bau = st.session_state.bau_data['Annual Emissions (kg CO₂e)'].sum()
-                scaled_criteria_df['CO₂ Saving (kg CO₂e/year)'] = total_annual_bau - (scaled_criteria_df['Total Score'] - scaled_criteria_df['Normalized Score'])
+                scaled_criteria_df['CO₂ Saving (kg CO₂e/year)'] = total_annual_bau - (scaled_criteria_df['Total Score'])
                 scaled_criteria_df['CO₂ Saving (%)'] = (scaled_criteria_df['CO₂ Saving (kg CO₂e/year)'] / total_annual_bau * 100) if total_annual_bau != 0 else 0
 
                 st.write("### Scenario Results")
@@ -672,13 +652,13 @@ You are an expert sustainability consultant. Based on the following description 
                 # ----------------------- Enhanced Visualization -----------------------
 
                 # Create a styled dataframe with ranking and color-coded cells
-                styled_display = scaled_criteria_df[['Scenario', 'Normalized Score', 'Rank']].copy()
+                styled_display = scaled_criteria_df[['Scenario', 'Total Score', 'Rank']].copy()
                 styled_display = styled_display.sort_values('Rank')
 
-                # Apply color formatting based on 'Normalized Score' using Styler.applymap
+                # Apply color formatting based on 'Total Score' using Styler.applymap
                 styled_display_style = styled_display.style.applymap(
                     lambda x: 'background-color: green' if x >=7 else ('background-color: yellow' if x >=5 else 'background-color: red'),
-                    subset=['Normalized Score']
+                    subset=['Total Score']
                 )
 
                 st.write("### Ranked Scenarios with Gradient Colors")
