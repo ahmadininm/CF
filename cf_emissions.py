@@ -26,12 +26,10 @@ def test_openai_linkage():
             max_tokens=10,
             temperature=0.7,
         )
-        st.success("OpenAI linkage test passed. Response: " + response['choices'][0]['message']['content'].strip())
+        message = response['choices'][0]['message']['content'].strip()
+        st.success(f"OpenAI linkage test passed. Response: {message}")
     except Exception as e:
         st.error(f"OpenAI linkage test failed: {e}")
-
-# Run the test function
-test_openai_linkage()
 
 # ----------------------- Session State Management -----------------------
 
@@ -137,8 +135,11 @@ def generate_scenarios(description, num_scenarios):
 # ----------------------- Main Application -----------------------
 
 def main():
-    # Set page configuration
+    # Set page configuration as the first Streamlit command
     st.set_page_config(page_title="Sustainability Decision Assistant", layout="wide")
+
+    # Run the OpenAI linkage test after setting page config
+    test_openai_linkage()
 
     # Main Title and Description
     st.title("Sustainability Decision Assistant")
@@ -405,17 +406,13 @@ def main():
         # Save edited criteria to session state
         st.session_state['edited_criteria_df'] = edited_scenario_df
 
-
-
-
-
     # ----------------------- Additional Criteria -----------------------
 
     if st.session_state.edited_criteria_df.empty:
         selected_criteria = []
     else:
         st.write("Apart from the environmental impact (e.g., CO₂ saved) calculated above, which of the following criteria are also important to your organisation? Please select all that apply and then assign values for each scenario.")
-    
+
         # Define scale-based criteria globally, including 'Other - Negative Trend'
         scale_criteria = {
             "Technical Feasibility", 
@@ -431,7 +428,7 @@ def main():
             "Priority for our organisation",
             "Other - Negative Trend"  # For inversion
         }
-    
+
         # Criteria options with brief, color-coded descriptions for the 1-10 scale criteria
         criteria_options = {
             "Technical Feasibility": "<span style='color:red;'>1-4: low feasibility</span>, <span style='color:orange;'>5-6: moderate</span>, <span style='color:green;'>7-10: high feasibility</span>",
@@ -450,14 +447,14 @@ def main():
             "Other - Positive Trend": "Enter criteria where a higher number is more beneficial.",
             "Other - Negative Trend": "Enter criteria where a higher number is less beneficial."
         }
-    
+
         # Let user select criteria
         selected_criteria = st.multiselect(
             "Select the criteria you want to consider:",
             list(criteria_options.keys()),
             key="selected_criteria_multiselect"
         )
-    
+
         # Allow adding multiple "Other" criteria with trend specification
         if any(crit.startswith("Other -") for crit in selected_criteria):
             other_trend_options = ["Other - Positive Trend", "Other - Negative Trend"]
@@ -562,132 +559,132 @@ def main():
 
     # ----------------------- Run Model -----------------------
 
-    # Only proceed if criteria were selected and edited_criteria_df is defined
-    if 'edited_criteria_df' in st.session_state and not st.session_state.edited_criteria_df.empty:
-        if st.button("Run Model"):
-            # Check if all required values are filled
-            if st.session_state.edited_criteria_df.isnull().values.any():
-                st.error("Please ensure all criteria values are filled.")
-            else:
-                # Create a copy for scaled results
-                scaled_criteria_df = st.session_state.edited_criteria_df.copy()
-
-                # Define specific criteria to normalize (if any)
-                criteria_to_normalize = ["Return on Investment (ROI)(years)", "Initial investment (£)", "Other - Positive Trend", "Other - Negative Trend"]
-
-                # Now scale each criterion
-                for crit in criteria_to_normalize:
-                    if crit in scaled_criteria_df.columns:
-                        try:
-                            values = scaled_criteria_df[crit].astype(float).values
-                        except:
-                            scaled_criteria_df[crit] = 5  # Assign neutral score if conversion fails
-                            values = scaled_criteria_df[crit].astype(float).values
-
-                        min_val = np.min(values)
-                        max_val = np.max(values)
-
-                        if crit == "Other - Positive Trend":
-                            # Higher is better: scale to 10
-                            if max_val == min_val:
-                                scaled_values = np.ones_like(values) * 10 if min_val != 0 else np.zeros_like(values)
-                            else:
-                                scaled_values = 1 + 9 * (values - min_val) / (max_val - min_val)
-                            scaled_criteria_df[crit] = scaled_values
-                        elif crit == "Other - Negative Trend":
-                            # Higher is worse: reverse scale
-                            if max_val == min_val:
-                                scaled_values = np.ones_like(values) * 10 if min_val != 0 else np.zeros_like(values)
-                            else:
-                                scaled_values = 10 - 9 * (values - min_val) / (max_val - min_val)
-                            scaled_criteria_df[crit] = scaled_values
-                        elif crit == "Return on Investment (ROI)(years)":
-                            # Lower ROI is better: reverse scale
-                            if max_val == min_val:
-                                scaled_values = np.ones_like(values) * 10 if min_val != 0 else np.zeros_like(values)
-                            else:
-                                scaled_values = 10 - 9 * (values - min_val) / (max_val - min_val)
-                            scaled_criteria_df[crit] = scaled_values
-                        elif crit == "Initial investment (£)":
-                            # Lower investment is better: reverse scale
-                            if max_val == min_val:
-                                scaled_values = np.ones_like(values) * 10 if min_val != 0 else np.zeros_like(values)
-                            else:
-                                scaled_values = 10 - 9 * (values - min_val) / (max_val - min_val)
-                            scaled_criteria_df[crit] = scaled_values
-
-                # Calculate the total score by summing all criteria
-                scaled_criteria_df['Total Score'] = scaled_criteria_df[selected_criteria].sum(axis=1)
-
-                # Normalize the total scores between 1 and 10
-                min_score = scaled_criteria_df['Total Score'].min()
-                max_score = scaled_criteria_df['Total Score'].max()
-                if max_score != min_score:
-                    scaled_criteria_df['Normalized Score'] = 1 + 9 * (scaled_criteria_df['Total Score'] - min_score) / (max_score - min_score)
+        # Only proceed if criteria were selected and edited_criteria_df is defined
+        if 'edited_criteria_df' in st.session_state and not st.session_state.edited_criteria_df.empty:
+            if st.button("Run Model"):
+                # Check if all required values are filled
+                if st.session_state.edited_criteria_df.isnull().values.any():
+                    st.error("Please ensure all criteria values are filled.")
                 else:
-                    scaled_criteria_df['Normalized Score'] = 5  # Assign a neutral score if all scores are equal
+                    # Create a copy for scaled results
+                    scaled_criteria_df = st.session_state.edited_criteria_df.copy()
 
-                # Assign colors based on normalized scores
-                def get_color(score):
-                    if score >= 7:
-                        return 'green'
-                    elif score >= 5:
-                        return 'yellow'
+                    # Define specific criteria to normalize (if any)
+                    criteria_to_normalize = ["Return on Investment (ROI)(years)", "Initial investment (£)", "Other - Positive Trend", "Other - Negative Trend"]
+
+                    # Now scale each criterion
+                    for crit in criteria_to_normalize:
+                        if crit in scaled_criteria_df.columns:
+                            try:
+                                values = scaled_criteria_df[crit].astype(float).values
+                            except:
+                                scaled_criteria_df[crit] = 5  # Assign neutral score if conversion fails
+                                values = scaled_criteria_df[crit].astype(float).values
+
+                            min_val = np.min(values)
+                            max_val = np.max(values)
+
+                            if crit == "Other - Positive Trend":
+                                # Higher is better: scale to 10
+                                if max_val == min_val:
+                                    scaled_values = np.ones_like(values) * 10 if min_val != 0 else np.zeros_like(values)
+                                else:
+                                    scaled_values = 1 + 9 * (values - min_val) / (max_val - min_val)
+                                scaled_criteria_df[crit] = scaled_values
+                            elif crit == "Other - Negative Trend":
+                                # Higher is worse: reverse scale
+                                if max_val == min_val:
+                                    scaled_values = np.ones_like(values) * 10 if min_val != 0 else np.zeros_like(values)
+                                else:
+                                    scaled_values = 10 - 9 * (values - min_val) / (max_val - min_val)
+                                scaled_criteria_df[crit] = scaled_values
+                            elif crit == "Return on Investment (ROI)(years)":
+                                # Lower ROI is better: reverse scale
+                                if max_val == min_val:
+                                    scaled_values = np.ones_like(values) * 10 if min_val != 0 else np.zeros_like(values)
+                                else:
+                                    scaled_values = 10 - 9 * (values - min_val) / (max_val - min_val)
+                                scaled_criteria_df[crit] = scaled_values
+                            elif crit == "Initial investment (£)":
+                                # Lower investment is better: reverse scale
+                                if max_val == min_val:
+                                    scaled_values = np.ones_like(values) * 10 if min_val != 0 else np.zeros_like(values)
+                                else:
+                                    scaled_values = 10 - 9 * (values - min_val) / (max_val - min_val)
+                                scaled_criteria_df[crit] = scaled_values
+
+                    # Calculate the total score by summing all criteria
+                    scaled_criteria_df['Total Score'] = scaled_criteria_df[selected_criteria].sum(axis=1)
+
+                    # Normalize the total scores between 1 and 10
+                    min_score = scaled_criteria_df['Total Score'].min()
+                    max_score = scaled_criteria_df['Total Score'].max()
+                    if max_score != min_score:
+                        scaled_criteria_df['Normalized Score'] = 1 + 9 * (scaled_criteria_df['Total Score'] - min_score) / (max_score - min_score)
                     else:
-                        return 'red'
+                        scaled_criteria_df['Normalized Score'] = 5  # Assign a neutral score if all scores are equal
 
-                scaled_criteria_df['Color'] = scaled_criteria_df['Normalized Score'].apply(get_color)
+                    # Assign colors based on normalized scores
+                    def get_color(score):
+                        if score >= 7:
+                            return 'green'
+                        elif score >= 5:
+                            return 'yellow'
+                        else:
+                            return 'red'
 
-                # Rank the scenarios based on Normalized Score
-                scaled_criteria_df['Rank'] = scaled_criteria_df['Normalized Score'].rank(method='min', ascending=False).astype(int)
+                    scaled_criteria_df['Color'] = scaled_criteria_df['Normalized Score'].apply(get_color)
 
-                st.write("### Normalized Results (All Criteria Scaled 1-10)")
-                st.dataframe(scaled_criteria_df.round(2))
+                    # Rank the scenarios based on Normalized Score
+                    scaled_criteria_df['Rank'] = scaled_criteria_df['Normalized Score'].rank(method='min', ascending=False).astype(int)
 
-                # Visualize the normalized scores with color gradients using Altair
-                chart = alt.Chart(scaled_criteria_df).mark_bar().encode(
-                    x=alt.X('Scenario:N', sort='-y'),
-                    y='Normalized Score:Q',
-                    color=alt.Color('Normalized Score:Q',
-                                    scale=alt.Scale(
-                                        domain=[1, 5, 10],
-                                        range=['red', 'yellow', 'green']
-                                    ),
-                                    legend=alt.Legend(title="Normalized Score"))
-                ).properties(
-                    width=700,
-                    height=400,
-                    title="Scenario Scores (Normalized 1-10)"
-                )
+                    st.write("### Normalized Results (All Criteria Scaled 1-10)")
+                    st.dataframe(scaled_criteria_df.round(2))
 
-                st.altair_chart(chart, use_container_width=True)
+                    # Visualize the normalized scores with color gradients using Altair
+                    chart = alt.Chart(scaled_criteria_df).mark_bar().encode(
+                        x=alt.X('Scenario:N', sort='-y'),
+                        y='Normalized Score:Q',
+                        color=alt.Color('Normalized Score:Q',
+                                        scale=alt.Scale(
+                                            domain=[1, 5, 10],
+                                            range=['red', 'yellow', 'green']
+                                        ),
+                                        legend=alt.Legend(title="Normalized Score"))
+                    ).properties(
+                        width=700,
+                        height=400,
+                        title="Scenario Scores (Normalized 1-10)"
+                    )
 
-                # ----------------------- Enhanced Visualization -----------------------
+                    st.altair_chart(chart, use_container_width=True)
 
-                # Create a styled dataframe with ranking and color-coded cells
-                styled_display = scaled_criteria_df[['Scenario', 'Normalized Score', 'Rank']].copy()
-                styled_display = styled_display.sort_values('Rank')
+                    # ----------------------- Enhanced Visualization -----------------------
 
-                # Apply color formatting based on 'Normalized Score'
-                def color_cell(score):
-                    if score >= 7:
-                        return 'background-color: green'
-                    elif score >= 5:
-                        return 'background-color: yellow'
-                    else:
-                        return 'background-color: red'
+                    # Create a styled dataframe with ranking and color-coded cells
+                    styled_display = scaled_criteria_df[['Scenario', 'Normalized Score', 'Rank']].copy()
+                    styled_display = styled_display.sort_values('Rank')
 
-                # Style the 'Normalized Score' column
-                styled_display_style = styled_display.style.applymap(color_cell, subset=['Normalized Score'])
+                    # Apply color formatting based on 'Normalized Score'
+                    def color_cell(score):
+                        if score >= 7:
+                            return 'background-color: green'
+                        elif score >= 5:
+                            return 'background-color: yellow'
+                        else:
+                            return 'background-color: red'
 
-                st.write("### Ranked Scenarios with Gradient Colors")
-                st.dataframe(styled_display_style)
+                    # Style the 'Normalized Score' column
+                    styled_display_style = styled_display.style.applymap(color_cell, subset=['Normalized Score'])
 
-                # ----------------------- Highlight Top Scenario -----------------------
+                    st.write("### Ranked Scenarios with Gradient Colors")
+                    st.dataframe(styled_display_style)
 
-                top_scenario = scaled_criteria_df.loc[scaled_criteria_df['Rank'] == 1, 'Scenario'].values
-                if len(top_scenario) > 0:
-                    st.success(f"The top-ranked scenario is **{top_scenario[0]}** with the highest carbon savings.")
+                    # ----------------------- Highlight Top Scenario -----------------------
 
-if __name__ == "__main__":
-    main()
+                    top_scenario = scaled_criteria_df.loc[scaled_criteria_df['Rank'] == 1, 'Scenario'].values
+                    if len(top_scenario) > 0:
+                        st.success(f"The top-ranked scenario is **{top_scenario[0]}** with the highest carbon savings.")
+
+    if __name__ == "__main__":
+        main()
