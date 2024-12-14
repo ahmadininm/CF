@@ -32,6 +32,7 @@ def get_openai_version_pkg_resources():
         return "Package not found."
 
 # ----------------------- Test OpenAI Linkage -----------------------
+# ----------------------- Test OpenAI Linkage -----------------------
 def test_openai_linkage():
     try:
         # Attempt a simple API call to test linkage
@@ -44,10 +45,9 @@ def test_openai_linkage():
             max_tokens=10,
             temperature=0.7,
         )
-        # Use attribute access instead of dict-style
-        message = response.choices[0].message.content.strip()
+        message = response['choices'][0]['message']['content'].strip()
         st.success(f"OpenAI API is working fine. Response: {message}")
-    except openai.error.OpenAIError as e:
+    except openai.error.InvalidRequestError as e:
         st.error(f"OpenAI API test failed: {e}")
     except Exception as e:
         st.error(f"Unexpected error: {e}")
