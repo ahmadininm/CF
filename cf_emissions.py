@@ -13,6 +13,16 @@ import openai  # Reintroduced OpenAI for ChatGPT integration
 # API_KEY = "your-openai-api-key"
 
 openai.api_key = st.secrets["OPENAI_API_KEY"]
+def main():
+    # ... existing code ...
+
+    # Verify OpenAI Package Version
+    try:
+        openai_version = openai.__version__
+        st.sidebar.write(f"**Installed OpenAI Version:** {openai_version}")
+    except AttributeError:
+        st.sidebar.write("**Installed OpenAI Version:** Not found")
+
 
 # ----------------------- Test OpenAI Linkage -----------------------
 
