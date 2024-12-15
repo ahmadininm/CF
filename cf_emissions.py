@@ -449,7 +449,11 @@ def main():
         scenario_data = [[item] + [100.0]*int(num_scenarios) for item in bau_data_ordered["Item"]]
         scenario_df = pd.DataFrame(scenario_data, columns=scenario_columns)
 
-        st.write("Assign usage percentages to each scenario for each BAU item. Ensure that the percentages are between 0 and 100.")
+        st.write("""
+            Assign usage percentages to each scenario for each BAU item. These percentages are relative to the BAU. 
+            For example, 90% means using 10% less of that item compared to BAU, while 120% means using 20% more.
+            Ensure that the percentages are between 0 and 100.
+        """)
 
         # Editable table for scenario percentages
         try:
@@ -702,6 +706,37 @@ def main():
                     # Rank the scenarios based on Normalized Score
                     scaled_criteria_df['Rank'] = scaled_criteria_df['Normalized Score'].rank(method='min', ascending=False).astype(int)
 
+                    # ----------------------- Scenario Results -----------------------
+                    st.write("### Scenario Results")
+                    results_df = pd.DataFrame({
+                        "Scenario": scaled_criteria_df["Scenario"],
+                        "Total Daily Emissions (kg CO₂e)": bau_data_ordered["Daily Emissions (kg CO₂e)"].dot(edited_scenario_df.drop(columns=["Item"]).T / 100),
+                        "Total Annual Emissions (kg CO₂e)": bau_data_ordered["Daily Emissions (kg CO₂e)"].dot(edited_scenario_df.drop(columns=["Item"]).T / 100) * 365,
+                        "CO₂ Saving (kg CO₂e/year)": total_annual_bau - bau_data_ordered["Daily Emissions (kg CO₂e)"].dot(edited_scenario_df.drop(columns=["Item"]).T / 100) * 365,
+                        "CO₂ Saving (%)": ((total_annual_bau - bau_data_ordered["Daily Emissions (kg CO₂e)"].dot(edited_scenario_df.drop(columns=["Item"]).T / 100) * 365) / total_annual_bau * 100).round(2)
+                    })
+                    results_df['Scenario'] = scaled_criteria_df['Scenario']
+                    st.dataframe(results_df)
+
+                    # ----------------------- CO₂ Savings Compared to BAU (%) -----------------------
+                    st.write("### CO₂ Savings Compared to BAU (%)")
+                    co2_saving_chart = alt.Chart(results_df).mark_bar().encode(
+                        x=alt.X('Scenario:N', sort='-y'),
+                        y='CO₂ Saving (%)',
+                        color=alt.Color('CO₂ Saving (%):Q',
+                                        scale=alt.Scale(
+                                            domain=[0, 50, 100],
+                                            range=['red', 'yellow', 'green']
+                                        ),
+                                        legend=alt.Legend(title="CO₂ Saving (%)"))
+                    ).properties(
+                        width=700,
+                        height=400,
+                        title="CO₂ Savings Compared to BAU (%)"
+                    )
+                    st.altair_chart(co2_saving_chart, use_container_width=True)
+
+                    # ----------------------- Normalized Results -----------------------
                     st.write("### Normalized Results (All Criteria Scaled 1-10)")
                     st.dataframe(scaled_criteria_df.round(2))
 
@@ -750,5 +785,5 @@ def main():
                     if len(top_scenario) > 0:
                         st.success(f"The top-ranked scenario is **{top_scenario[0]}** with the highest carbon savings.")
 
-if __name__ == "__main__":
-    main()
+    if __name__ == "__main__":
+        main()
