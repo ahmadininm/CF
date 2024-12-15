@@ -16,11 +16,12 @@ from openai.error import InvalidRequestError, AuthenticationError, RateLimitErro
 # [OPENAI]
 # API_KEY = "your-openai-api-key"
 
-try:
-    openai.api_key = st.secrets["OPENAI_API_KEY"]
-except KeyError:
-    st.error("OpenAI API key not found. Please set it in the Streamlit Secrets.")
-    st.stop()
+def initialize_openai():
+    try:
+        openai.api_key = st.secrets["OPENAI_API_KEY"]
+    except KeyError:
+        st.error("OpenAI API key not found. Please set it in the Streamlit Secrets.")
+        st.stop()
 
 # ----------------------- Helper Functions -----------------------
 def get_openai_version_importlib():
@@ -65,9 +66,9 @@ def save_session_state():
     state = {
         'bau_data': st.session_state.get('bau_data').to_json(),
         'emission_factors': st.session_state.get('emission_factors'),
-        'scenario_desc_df': st.session_state.get('edited_scenario_desc_df').to_json() if 'edited_scenario_desc_df' in st.session_state else None,
-        'criteria_df': st.session_state.get('edited_criteria_df').to_json() if 'edited_criteria_df' in st.session_state else None,
+        'edited_scenario_desc_df': st.session_state.get('edited_scenario_desc_df').to_json() if 'edited_scenario_desc_df' in st.session_state else None,
         'selected_criteria': st.session_state.get('selected_criteria'),
+        'edited_criteria_df': st.session_state.get('edited_criteria_df').to_json() if 'edited_criteria_df' in st.session_state else None,
         'ai_proposed': st.session_state.get('ai_proposed', False)
     }
     return state
@@ -91,20 +92,20 @@ def load_session_state(uploaded_file):
         st.session_state.emission_factors = data['emission_factors']
         
         # Load Scenario Descriptions if available
-        if data.get('scenario_desc_df'):
-            scenario_desc_loaded = pd.read_json(data['scenario_desc_df'])
+        if data.get('edited_scenario_desc_df'):
+            scenario_desc_loaded = pd.read_json(data['edited_scenario_desc_df'])
             st.session_state.edited_scenario_desc_df = scenario_desc_loaded
         
+        # Load Selected Criteria
+        st.session_state.selected_criteria = data['selected_criteria']
+        
         # Load Criteria Values if available
-        if data.get('criteria_df'):
-            criteria_values_loaded = pd.read_json(data['criteria_df'])
+        if data.get('edited_criteria_df'):
+            criteria_values_loaded = pd.read_json(data['edited_criteria_df'])
             # Ensure all numeric criteria are float
             numeric_cols = criteria_values_loaded.columns.drop('Scenario')
             criteria_values_loaded[numeric_cols] = criteria_values_loaded[numeric_cols].apply(pd.to_numeric, errors='coerce').fillna(1.0)
             st.session_state.edited_criteria_df = criteria_values_loaded
-        
-        # Load Selected Criteria
-        st.session_state.selected_criteria = data['selected_criteria']
         
         # Load AI Proposed Flag
         st.session_state.ai_proposed = data.get('ai_proposed', False)
@@ -168,8 +169,11 @@ def main():
     # Set page configuration
     st.set_page_config(page_title="Sustainability Decision Assistant", layout="wide")
     
+    # Initialize OpenAI
+    initialize_openai()
+    
     # Display OpenAI package version using importlib.metadata
-    st.sidebar.write("### OpenAI Package Version")
+    st.sidebar.write("### OpenAI Package Version (importlib.metadata)")
     openai_version = get_openai_version_importlib()
     st.sidebar.write(f"**Installed OpenAI Version:** {openai_version}")
     
@@ -230,7 +234,7 @@ def main():
     
     if 'edited_criteria_df' not in st.session_state:
         st.session_state.edited_criteria_df = pd.DataFrame()
-
+    
     if 'selected_criteria' not in st.session_state:
         st.session_state.selected_criteria = []
     
@@ -298,12 +302,19 @@ def main():
     bau_data = st.session_state.bau_data.copy()
     bau_data["Emission Factor (kg CO₂e/unit)"] = bau_data["Item"].map(st.session_state.emission_factors).fillna(0.0)
 
+    # Check for missing emission factors
+    missing_factors = bau_data["Emission Factor (kg CO₂e/unit)"].isnull()
+    if missing_factors.any():
+        st.warning("Some items are missing emission factors. Please provide them.")
+        # Optionally, prompt the user to input missing emission factors
+        # For simplicity, fill missing values with 0.0 or a default value
+        bau_data["Emission Factor (kg CO₂e/unit)"] = bau_data["Emission Factor (kg CO₂e/unit)"].fillna(0.0)
+
     # Calculate emissions for BAU
     bau_data["Daily Emissions (kg CO₂e)"] = bau_data["Daily Usage (Units)"] * bau_data["Emission Factor (kg CO₂e/unit)"]
     bau_data["Annual Emissions (kg CO₂e)"] = bau_data["Daily Emissions (kg CO₂e)"] * 365
 
     # ----------------------- Ensure BAU Graph Maintains Input Order -----------------------
-
     # Reorder bau_data to ensure default items come first, followed by custom items
     default_items = [
         "Gas (kWh/day)", 
@@ -558,7 +569,7 @@ def main():
 
         # ----------------------- Assign Criteria Values -----------------------
 
-        if selected_criteria:
+        if selected_criteria and not st.session_state.edited_scenario_desc_df.empty:
             st.write("### Assign Criteria Values to Each Scenario")
             st.write("Double-click a cell to edit. For (1-10) criteria, only enter values between 1 and 10.")
 
@@ -708,22 +719,37 @@ def main():
 
                     # ----------------------- Scenario Results -----------------------
                     st.write("### Scenario Results")
-                    results_df = pd.DataFrame({
-                        "Scenario": scaled_criteria_df["Scenario"],
-                        "Total Daily Emissions (kg CO₂e)": bau_data_ordered["Daily Emissions (kg CO₂e)"].dot(edited_scenario_df.drop(columns=["Item"]).T / 100),
-                        "Total Annual Emissions (kg CO₂e)": bau_data_ordered["Daily Emissions (kg CO₂e)"].dot(edited_scenario_df.drop(columns=["Item"]).T / 100) * 365,
-                        "CO₂ Saving (kg CO₂e/year)": total_annual_bau - bau_data_ordered["Daily Emissions (kg CO₂e)"].dot(edited_scenario_df.drop(columns=["Item"]).T / 100) * 365,
-                        "CO₂ Saving (%)": ((total_annual_bau - bau_data_ordered["Daily Emissions (kg CO₂e)"].dot(edited_scenario_df.drop(columns=["Item"]).T / 100) * 365) / total_annual_bau * 100).round(2)
-                    })
-                    results_df['Scenario'] = scaled_criteria_df['Scenario']
+                    results = []
+                    for col in st.session_state.edited_criteria_df.columns[1:]:
+                        scenario_name = col.replace(" (%)","")  # Remove " (%)" from the scenario name
+                        usage_percentages = st.session_state.edited_criteria_df[col].values / 100.0
+                        scenario_daily_emissions = (bau_data_ordered["Daily Usage (Units)"].values 
+                                                    * usage_percentages 
+                                                    * bau_data_ordered["Emission Factor (kg CO₂e/unit)"].values).sum()
+                        scenario_annual_emissions = scenario_daily_emissions * 365
+                        co2_saving_kg = total_annual_bau - scenario_annual_emissions
+                        co2_saving_percent = (co2_saving_kg / total_annual_bau * 100) if total_annual_bau != 0 else 0
+
+                        results.append({
+                            "Scenario": scenario_name,
+                            "Total Daily Emissions (kg CO₂e)": scenario_daily_emissions,
+                            "Total Annual Emissions (kg CO₂e)": scenario_annual_emissions,
+                            "CO₂ Saving (kg CO₂e/year)": co2_saving_kg,
+                            "CO₂ Saving (%)": round(co2_saving_percent, 2)
+                        })
+
+                    results_df = pd.DataFrame(results)
+                    # Reindex the results to start from 1
+                    results_df.index = range(1, len(results_df) + 1)
+
                     st.dataframe(results_df)
 
                     # ----------------------- CO₂ Savings Compared to BAU (%) -----------------------
-                    st.write("### CO₂ Savings Compared to BAU (%)")
+                    st.subheader("CO₂ Savings Compared to BAU (%)")
                     co2_saving_chart = alt.Chart(results_df).mark_bar().encode(
                         x=alt.X('Scenario:N', sort='-y'),
                         y='CO₂ Saving (%)',
-                        color=alt.Color('CO₂ Saving (%):Q',
+                        color=alt.Color('CO₂ Saving (%)',
                                         scale=alt.Scale(
                                             domain=[0, 50, 100],
                                             range=['red', 'yellow', 'green']
@@ -759,7 +785,6 @@ def main():
                     st.altair_chart(chart, use_container_width=True)
 
                     # ----------------------- Enhanced Visualization -----------------------
-
                     # Create a styled dataframe with ranking and color-coded cells
                     styled_display = scaled_criteria_df[['Scenario', 'Normalized Score', 'Rank']].copy()
                     styled_display = styled_display.sort_values('Rank')
@@ -780,7 +805,6 @@ def main():
                     st.dataframe(styled_display_style)
 
                     # ----------------------- Highlight Top Scenario -----------------------
-
                     top_scenario = scaled_criteria_df.loc[scaled_criteria_df['Rank'] == 1, 'Scenario'].values
                     if len(top_scenario) > 0:
                         st.success(f"The top-ranked scenario is **{top_scenario[0]}** with the highest carbon savings.")
