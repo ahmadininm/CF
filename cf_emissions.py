@@ -340,6 +340,37 @@ def main():
         height=150,
         key="activities_description_input"
     )
+    
+        # ----------------------- Scenario Generation -----------------------
+    if activities_description.strip() != "":
+        st.success("Activities description received. You can now define your scenarios based on this information.")
+
+        st.subheader("Generate Scenario Suggestions")
+        st.write("Click the button below to generate scenario suggestions based on your activities description.")
+
+        if st.button("Generate Scenarios"):
+            num_scenarios = st.number_input(
+                "How many scenarios would you like to generate?",
+                min_value=1,
+                step=1,
+                value=3,
+                key="num_scenarios_to_generate"
+            )
+            with st.spinner("Generating scenarios..."):
+                generated_scenarios = generate_scenarios(activities_description, int(num_scenarios))
+                if generated_scenarios:
+                    # Create a DataFrame for scenario descriptions
+                    scenario_desc_columns = ["Scenario", "Description"]
+                    scenario_desc_data = [[scenario['name'], scenario['description']] for scenario in generated_scenarios]
+                    scenario_desc_df = pd.DataFrame(scenario_desc_data, columns=scenario_desc_columns)
+                    
+                    # Update the session state with generated scenarios
+                    st.session_state.edited_scenario_desc_df = scenario_desc_df
+                    st.success("Scenarios generated successfully! You can now review and edit them as needed.")
+                else:
+                    st.error("No scenarios were generated. Please try again or enter a more detailed description.")
+    
+    
 
     # ----------------------- Scenario Planning -----------------------
 
