@@ -4,6 +4,7 @@ import numpy as np
 import openai
 import json
 import altair as alt  # For advanced visualizations
+import base64  # For encoding download data
 
 # For OpenAI SDK >=1.0.0
 try:
@@ -11,8 +12,6 @@ try:
 except ImportError:
     # For older OpenAI SDK versions
     OpenAIError = Exception
-
-import base64  # For encoding download data
 
 # ----------------------- Helper Functions -----------------------
 def save_session_state():
@@ -672,33 +671,33 @@ def main():
                 # Reindex the results to start from 1
                 results_df.index = range(1, len(results_df) + 1)
 
+                st.write("### Scenario Results")
                 st.dataframe(results_df)
 
                 # ----------------------- CO₂ Savings Compared to BAU (%) -----------------------
                 st.subheader("CO₂ Savings Compared to BAU (%)")
-                co2_saving_chart = alt.Chart(results_df).mark_bar().encode(
-                    x=alt.X('Scenario:N', sort='-y'),
-                    y='CO₂ Saving (%)',
-                    color=alt.Color('CO₂ Saving (%)',
-                                    scale=alt.Scale(
-                                        domain=[0, 50, 100],
-                                        range=['red', 'yellow', 'green']
-                                    ),
-                                    legend=alt.Legend(title="CO₂ Saving (%)"))
-                ).properties(
-                    width=700,
-                    height=400,
-                    title="CO₂ Savings Compared to BAU (%)"
-                )
-                st.altair_chart(co2_saving_chart, use_container_width=True)
+                st.bar_chart(results_df.set_index("Scenario")["CO₂ Saving (%)"], use_container_width=True)
 
-                # ----------------------- Option to Download Results -----------------------
+                # Option to download scenario results as CSV
                 st.download_button(
                     label="Download Scenario Results as CSV",
                     data=results_df.to_csv(index=False),
                     file_name="scenario_results.csv",
                     mime="text/csv"
                 )
+
+                # ----------------------- Additional Criteria -----------------------
+
+                # Note: Implementation of additional criteria scoring and visualization can be added here as needed.
+
+                # ----------------------- Enhanced Visualization -----------------------
+                # (Optional: You can add more visualizations or analyses based on the criteria scores.)
+
+                # ----------------------- Highlight Top Scenario -----------------------
+
+                top_scenario = scaled_criteria_df.loc[scaled_criteria_df['Rank'] == 1, 'Scenario'].values
+                if len(top_scenario) > 0:
+                    st.success(f"The top-ranked scenario is **{top_scenario[0]}** with the highest carbon savings.")
 
     if __name__ == "__main__": 
         main()
