@@ -385,7 +385,7 @@ def main():
         Assign usage percentages to each scenario for each BAU item. These percentages are relative to the BAU.
         - **90%** means using **10% less** of that item compared to BAU.
         - **120%** means using **20% more** of that item compared to BAU.
-        - Ensure that the percentages are between **0** and **100**.
+    
     """)
 
     # Editable table for scenario percentages
