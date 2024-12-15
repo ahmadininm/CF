@@ -106,12 +106,12 @@ def generate_scenarios(description, num_scenarios):
         scenarios_text = response.choices[0].message.content.strip()
         # Split scenarios based on numbering
         scenarios = []
-        for line in scenarios_text.split('\n'):
-            if line.strip() == "":
+        for scenario in scenarios_text.split('\n'):
+            if scenario.strip() == "":
                 continue
             # Assuming scenarios are listed as "1. Name: Description"
-            if '.' in line:
-                parts = line.split('.', 1)
+            if '.' in scenario:
+                parts = scenario.split('.', 1)
                 name_desc = parts[1].strip()
                 if ':' in name_desc:
                     name, desc = name_desc.split(':', 1)
@@ -687,6 +687,7 @@ def main():
                 )
 
                 # ----------------------- Additional Criteria -----------------------
+
                 # Note: Implementation of additional criteria scoring and visualization can be added here as needed.
 
                 # ----------------------- Enhanced Visualization -----------------------
@@ -698,5 +699,5 @@ def main():
                 if len(top_scenario) > 0:
                     st.success(f"The top-ranked scenario is **{top_scenario[0]}** with the highest carbon savings.")
 
-if __name__ == "__main__": 
-    main()
+    if __name__ == "__main__": 
+        main()
