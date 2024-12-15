@@ -4,7 +4,6 @@ import numpy as np
 import openai
 import json
 import altair as alt  # For advanced visualizations
-import base64  # For encoding download data
 
 # For OpenAI SDK >=1.0.0
 try:
@@ -13,118 +12,6 @@ except ImportError:
     # For older OpenAI SDK versions
     OpenAIError = Exception
 
-# ----------------------- Helper Functions -----------------------
-def save_session_state():
-    """
-    Serializes the necessary session state variables into a JSON-compatible dictionary.
-    Returns:
-        dict: Serialized session state.
-    """
-    state = {
-        'bau_data': st.session_state.get('bau_data').to_json(),
-        'emission_factors': st.session_state.get('emission_factors'),
-        'scenario_desc_df': st.session_state.get('scenario_desc_df').to_json() if 'scenario_desc_df' in st.session_state else None,
-        'criteria_df': st.session_state.get('criteria_df').to_json() if 'criteria_df' in st.session_state else None,
-        'selected_criteria': st.session_state.get('selected_criteria'),
-        'proposed_scenarios': st.session_state.get('proposed_scenarios'),
-        'ai_proposed': st.session_state.get('ai_proposed', False)
-    }
-    return state
-
-def load_session_state(uploaded_file):
-    """
-    Deserializes the uploaded JSON file and updates the session state variables.
-    Args:
-        uploaded_file (BytesIO): Uploaded JSON file.
-    """
-    try:
-        data = json.load(uploaded_file)
-        
-        # Load BAU Data
-        bau_data_loaded = pd.read_json(data['bau_data'])
-        # Ensure 'Daily Usage (Units)' is float
-        bau_data_loaded['Daily Usage (Units)'] = pd.to_numeric(bau_data_loaded['Daily Usage (Units)'], errors='coerce').fillna(0.0)
-        st.session_state.bau_data = bau_data_loaded
-        
-        # Load Emission Factors
-        st.session_state.emission_factors = data['emission_factors']
-        
-        # Load Scenario Descriptions if available
-        if data.get('scenario_desc_df'):
-            scenario_desc_loaded = pd.read_json(data['scenario_desc_df'])
-            st.session_state.scenario_desc_df = scenario_desc_loaded
-        
-        # Load Criteria Values if available
-        if data.get('criteria_df'):
-            criteria_values_loaded = pd.read_json(data['criteria_df'])
-            # Ensure all numeric criteria are float
-            numeric_cols = criteria_values_loaded.columns.drop('Scenario')
-            criteria_values_loaded[numeric_cols] = criteria_values_loaded[numeric_cols].apply(pd.to_numeric, errors='coerce').fillna(1.0)
-            st.session_state.criteria_df = criteria_values_loaded
-        
-        # Load Selected Criteria
-        st.session_state.selected_criteria = data['selected_criteria']
-        
-        # Load Proposed Scenarios
-        st.session_state.proposed_scenarios = data.get('proposed_scenarios', [])
-        
-        # Load AI Proposed Flag
-        st.session_state.ai_proposed = data.get('ai_proposed', False)
-        
-        st.sidebar.success("Progress loaded successfully!")
-    except Exception as e:
-        st.sidebar.error(f"Failed to load progress: {e}")
-
-def generate_scenarios(description, num_scenarios):
-    """
-    Uses OpenAI's GPT model to generate scenario suggestions based on the activities description.
-    Args:
-        description (str): The activities description input by the user.
-        num_scenarios (int): The number of scenarios to generate.
-    Returns:
-        list of dict: Generated scenarios with 'name' and 'description'.
-    """
-    prompt = (
-        f"Based on the following description of an organization's activities and sustainability goals, "
-        f"generate {num_scenarios} detailed sustainability scenarios. "
-        f"Each scenario should include a name and a brief description.\n\n"
-        f"Description:\n{description}\n\n"
-        f"Scenarios:"
-    )
-    
-    try:
-        response = openai.ChatCompletion.create(
-            model="gpt-3.5-turbo",  # You can choose a different model if desired
-            messages=[
-                {"role": "system", "content": "You are an expert sustainability analyst."},
-                {"role": "user", "content": prompt}
-            ],
-            max_tokens=500,
-            temperature=0.7,
-        )
-        # Use attribute access instead of dict-style
-        scenarios_text = response.choices[0].message.content.strip()
-        # Split scenarios based on numbering
-        scenarios = []
-        for scenario in scenarios_text.split('\n'):
-            if scenario.strip() == "":
-                continue
-            # Assuming scenarios are listed as "1. Name: Description"
-            if '.' in scenario:
-                parts = scenario.split('.', 1)
-                name_desc = parts[1].strip()
-                if ':' in name_desc:
-                    name, desc = name_desc.split(':', 1)
-                    scenarios.append({"name": name.strip(), "description": desc.strip()})
-        return scenarios
-    except OpenAIError as e:
-        st.sidebar.error(f"OpenAI API Error: {e}")
-        return []
-    except Exception as e:
-        st.sidebar.error(f"Unexpected error: {e}")
-        return []
-
-# ----------------------- Main Application -----------------------
 def main():
     # Set page configuration
     st.set_page_config(page_title="Sustainability Decision Assistant", layout="wide")
@@ -145,6 +32,7 @@ def main():
         st.write("**OpenAI Package Version:** Not Found")
 
     # ----------------------- OpenAI API Key Setup -----------------------
+
     # Retrieve OpenAI API key from Streamlit Secrets
     try:
         openai.api_key = st.secrets["OPENAI_API_KEY"]
@@ -191,25 +79,6 @@ def main():
     
     if 'ai_proposed' not in st.session_state:
         st.session_state.ai_proposed = False
-
-    # ----------------------- Save and Load Progress -----------------------
-    st.sidebar.header("🔄 Save and Load Progress")
-    
-    # Save Progress Button
-    if st.sidebar.button("Save Progress"):
-        session_state_serialized = save_session_state()
-        json_data = json.dumps(session_state_serialized, indent=4)
-        # Encode the JSON data for download
-        b64 = base64.b64encode(json_data.encode()).decode()
-        href = f'<a href="data:text/json;base64,{b64}" download="sustainability_progress.json">Download Progress</a>'
-        st.sidebar.markdown(href, unsafe_allow_html=True)
-        st.sidebar.success("Progress saved! Click the link to download.")
-    
-    # Load Progress Uploader
-    st.sidebar.write("### Load Progress")
-    uploaded_file = st.sidebar.file_uploader("Upload your saved progress JSON file:", type=["json"])
-    if uploaded_file is not None:
-        load_session_state(uploaded_file)
 
     # ----------------------- BAU Inputs -----------------------
 
@@ -316,46 +185,15 @@ def main():
         key="activities_description_input"
     )
 
-    # ----------------------- Optional Scenario Generation -----------------------
-    st.subheader("Optional: Generate Scenarios Using OpenAI")
-    generate_scenarios_toggle = st.checkbox("Generate scenarios using OpenAI", value=False, key="generate_scenarios_toggle")
-
-    if generate_scenarios_toggle:
-        if activities_description.strip() == "":
-            st.warning("Please provide a description of your organization's activities to generate scenarios.")
-        else:
-            if st.button("Generate Scenarios"):
-                num_scenarios = st.number_input(
-                    "How many scenarios would you like to generate?",
-                    min_value=1,
-                    step=1,
-                    value=3,
-                    key="num_scenarios_to_generate"
-                )
-                with st.spinner("Generating scenarios..."):
-                    generated_scenarios = generate_scenarios(activities_description, int(num_scenarios))
-                    if generated_scenarios:
-                        # Create a DataFrame for scenario descriptions
-                        scenario_desc_columns = ["Scenario", "Description"]
-                        scenario_desc_data = [[scenario['name'], scenario['description']] for scenario in generated_scenarios]
-                        scenario_desc_df = pd.DataFrame(scenario_desc_data, columns=scenario_desc_columns)
-                        
-                        # Update the session state with generated scenarios
-                        st.session_state.scenario_desc_df = scenario_desc_df
-                        st.session_state.ai_proposed = True
-                        st.success("Scenarios generated successfully! You can now review and edit them as needed.")
-                    else:
-                        st.error("No scenarios were generated. Please try again or enter a more detailed description.")
-
     # ----------------------- Scenario Planning -----------------------
 
     st.subheader("Scenario Planning (Editable Table)")
 
     # Let users define scenarios manually based on their activities
-    if activities_description.strip() != "" and not generate_scenarios_toggle:
+    if activities_description.strip() != "":
         st.success("Activities description received. You can now define your scenarios based on this information.")
-    elif generate_scenarios_toggle and st.session_state.ai_proposed:
-        st.success("AI-generated scenarios are available. You can review and edit them below.")
+    else:
+        st.info("Please describe your organization's activities to proceed with scenario planning.")
 
     # Number of scenarios input
     num_scenarios = st.number_input(
@@ -367,19 +205,8 @@ def main():
     )
 
     # Create a DataFrame for scenario descriptions
-    if st.session_state.scenario_desc_df.empty:
-        scenario_desc_columns = ["Scenario", "Description"]
-        scenario_desc_data = [[f"Scenario {i+1}", ""] for i in range(int(num_scenarios))]
-    else:
-        scenario_desc_columns = ["Scenario", "Description"]
-        scenario_desc_data = st.session_state.scenario_desc_df.values.tolist()
-        # Adjust the number of scenarios based on user input
-        if int(num_scenarios) > len(scenario_desc_data):
-            for i in range(int(num_scenarios) - len(scenario_desc_data)):
-                scenario_desc_data.append([f"Scenario {len(scenario_desc_data)+1}", ""])
-        elif int(num_scenarios) < len(scenario_desc_data):
-            scenario_desc_data = scenario_desc_data[:int(num_scenarios)]
-    
+    scenario_desc_columns = ["Scenario", "Description"]
+    scenario_desc_data = [[f"Scenario {i+1}", ""] for i in range(int(num_scenarios))]
     scenario_desc_df = pd.DataFrame(scenario_desc_data, columns=scenario_desc_columns)
 
     st.write("Please describe each scenario. Double-click a cell to edit the description.")
@@ -391,19 +218,14 @@ def main():
         edited_scenario_desc_df = st.experimental_data_editor(scenario_desc_df, use_container_width=True, key="scenario_desc_editor")
 
     # Save edited scenario descriptions to session state
-    st.session_state.scenario_desc_df = edited_scenario_desc_df
+    st.session_state['edited_scenario_desc_df'] = edited_scenario_desc_df
 
     # Create a DataFrame with one column per scenario
     scenario_columns = ["Item"] + [f"{row['Scenario']} (%)" for index, row in edited_scenario_desc_df.iterrows()]
     scenario_data = [[item] + [100.0]*int(num_scenarios) for item in bau_data_ordered["Item"]]
     scenario_df = pd.DataFrame(scenario_data, columns=scenario_columns)
 
-    st.write("""
-        Assign usage percentages to each scenario for each BAU item. These percentages are relative to the BAU.
-        - **90%** means using **10% less** of that item compared to BAU.
-        - **120%** means using **20% more** of that item compared to BAU.
-        - Ensure that the percentages are between **0** and **100**.
-    """)
+    st.write("Please assign values for each selected criterion to each scenario. Double-click a cell to edit. For (1-10) criteria, only enter values between 1 and 10.")
 
     # Editable table for scenario percentages
     try:
@@ -415,8 +237,42 @@ def main():
     for col in edited_scenario_df.columns[1:]:
         edited_scenario_df[col] = pd.to_numeric(edited_scenario_df[col], errors='coerce').fillna(100.0)
 
-    # Save edited criteria to session state
-    st.session_state['criteria_df'] = edited_scenario_df
+    # Calculate scenario emissions and savings
+    results = []
+    for col in edited_scenario_df.columns[1:]:
+        usage_percentages = edited_scenario_df[col].values / 100.0
+        scenario_daily_emissions = (bau_data_ordered["Daily Usage (Units)"].values 
+                                    * usage_percentages 
+                                    * bau_data_ordered["Emission Factor (kg CO₂e/unit)"].values).sum()
+        scenario_annual_emissions = scenario_daily_emissions * 365
+        co2_saving_kg = total_annual_bau - scenario_annual_emissions
+        co2_saving_percent = (co2_saving_kg / total_annual_bau * 100) if total_annual_bau != 0 else 0
+
+        results.append({
+            "Scenario": col.replace(" (%)",""),  # Remove " (%)" from the scenario name
+            "Total Daily Emissions (kg CO₂e)": scenario_daily_emissions,
+            "Total Annual Emissions (kg CO₂e)": scenario_annual_emissions,
+            "CO₂ Saving (kg CO₂e/year)": co2_saving_kg,
+            "CO₂ Saving (%)": co2_saving_percent
+        })
+
+    results_df = pd.DataFrame(results)
+    # Reindex the results to start from 1
+    results_df.index = range(1, len(results_df) + 1)
+
+    st.write("### Scenario Results")
+    st.dataframe(results_df)
+
+    st.subheader("CO₂ Savings Compared to BAU (%)")
+    st.bar_chart(results_df.set_index("Scenario")["CO₂ Saving (%)"], use_container_width=True)
+
+    # Option to download scenario results as CSV
+    st.download_button(
+        label="Download Scenario Results as CSV",
+        data=results_df.to_csv(index=False),
+        file_name="scenario_results.csv",
+        mime="text/csv"
+    )
 
     # ----------------------- Additional Criteria -----------------------
 
@@ -505,7 +361,7 @@ def main():
         # Create a DataFrame for criteria values
         criteria_columns = ["Scenario"] + selected_criteria
         criteria_data = []
-        for index, row in st.session_state.scenario_desc_df.iterrows():
+        for index, row in edited_scenario_desc_df.iterrows():
             scenario = row["Scenario"]
             criteria_values = [scenario] + [1 for _ in selected_criteria]  # Initialize with 1
             criteria_data.append(criteria_values)
@@ -564,19 +420,19 @@ def main():
                 edited_criteria_df[col] = edited_criteria_df[col].clip(lower=1.0, upper=10.0)
 
         # Save edited criteria to session state
-        st.session_state['criteria_df'] = edited_criteria_df
+        st.session_state['edited_criteria_df'] = edited_criteria_df
 
     # ----------------------- Run Model -----------------------
 
     # Only proceed if criteria were selected and edited_criteria_df is defined
-    if selected_criteria and 'criteria_df' in st.session_state and not st.session_state.criteria_df.empty:
+    if selected_criteria and 'edited_criteria_df' in st.session_state and not st.session_state.edited_criteria_df.empty:
         if st.button("Run Model"):
             # Check if all required values are filled
-            if st.session_state.criteria_df.isnull().values.any():
+            if st.session_state.edited_criteria_df.isnull().values.any():
                 st.error("Please ensure all criteria values are filled.")
             else:
                 # Create a copy for scaled results
-                scaled_criteria_df = st.session_state.criteria_df.copy()
+                scaled_criteria_df = st.session_state.edited_criteria_df.copy()
 
                 # Define specific criteria to normalize (if any)
                 criteria_to_normalize = ["Return on Investment (ROI)(years)", "Initial investment (£)", "Other - Positive Trend", "Other - Negative Trend"]
@@ -647,51 +503,47 @@ def main():
                 # Rank the scenarios based on Normalized Score
                 scaled_criteria_df['Rank'] = scaled_criteria_df['Normalized Score'].rank(method='min', ascending=False).astype(int)
 
-                # ----------------------- Scenario Results -----------------------
-                st.write("### Scenario Results")
-                results = []
-                for col in st.session_state.criteria_df.columns[1:]:
-                    usage_percentages = st.session_state.criteria_df[col].values / 100.0
-                    scenario_daily_emissions = (bau_data_ordered["Daily Usage (Units)"].values 
-                                                * usage_percentages 
-                                                * bau_data_ordered["Emission Factor (kg CO₂e/unit)"].values).sum()
-                    scenario_annual_emissions = scenario_daily_emissions * 365
-                    co2_saving_kg = total_annual_bau - scenario_annual_emissions
-                    co2_saving_percent = (co2_saving_kg / total_annual_bau * 100) if total_annual_bau != 0 else 0
+                st.write("### Normalized Results (All Criteria Scaled 1-10)")
+                st.dataframe(scaled_criteria_df.round(2))
 
-                    results.append({
-                        "Scenario": col.replace(" (%)",""),  # Remove " (%)" from the scenario name
-                        "Total Daily Emissions (kg CO₂e)": scenario_daily_emissions,
-                        "Total Annual Emissions (kg CO₂e)": scenario_annual_emissions,
-                        "CO₂ Saving (kg CO₂e/year)": co2_saving_kg,
-                        "CO₂ Saving (%)": round(co2_saving_percent, 2)
-                    })
-
-                results_df = pd.DataFrame(results)
-                # Reindex the results to start from 1
-                results_df.index = range(1, len(results_df) + 1)
-
-                st.write("### Scenario Results")
-                st.dataframe(results_df)
-
-                # ----------------------- CO₂ Savings Compared to BAU (%) -----------------------
-                st.subheader("CO₂ Savings Compared to BAU (%)")
-                st.bar_chart(results_df.set_index("Scenario")["CO₂ Saving (%)"], use_container_width=True)
-
-                # Option to download scenario results as CSV
-                st.download_button(
-                    label="Download Scenario Results as CSV",
-                    data=results_df.to_csv(index=False),
-                    file_name="scenario_results.csv",
-                    mime="text/csv"
+                # Visualize the normalized scores with color gradients using Altair
+                chart = alt.Chart(scaled_criteria_df).mark_bar().encode(
+                    x=alt.X('Scenario:N', sort='-y'),
+                    y='Normalized Score:Q',
+                    color=alt.Color('Normalized Score:Q',
+                                    scale=alt.Scale(
+                                        domain=[1, 5, 10],
+                                        range=['red', 'yellow', 'green']
+                                    ),
+                                    legend=alt.Legend(title="Normalized Score"))
+                ).properties(
+                    width=700,
+                    height=400,
+                    title="Scenario Scores (Normalized 1-10)"
                 )
 
-                # ----------------------- Additional Criteria -----------------------
-
-                # Note: Implementation of additional criteria scoring and visualization can be added here as needed.
+                st.altair_chart(chart, use_container_width=True)
 
                 # ----------------------- Enhanced Visualization -----------------------
-                # (Optional: You can add more visualizations or analyses based on the criteria scores.)
+
+                # Create a styled dataframe with ranking and color-coded cells
+                styled_display = scaled_criteria_df[['Scenario', 'Normalized Score', 'Rank']].copy()
+                styled_display = styled_display.sort_values('Rank')
+
+                # Apply color formatting based on 'Normalized Score'
+                def color_cell(score):
+                    if score >= 7:
+                        return 'background-color: green'
+                    elif score >= 5:
+                        return 'background-color: yellow'
+                    else:
+                        return 'background-color: red'
+
+                # Style the 'Normalized Score' column
+                styled_display_style = styled_display.style.applymap(color_cell, subset=['Normalized Score'])
+
+                st.write("### Ranked Scenarios with Gradient Colors")
+                st.dataframe(styled_display_style)
 
                 # ----------------------- Highlight Top Scenario -----------------------
 
@@ -699,5 +551,5 @@ def main():
                 if len(top_scenario) > 0:
                     st.success(f"The top-ranked scenario is **{top_scenario[0]}** with the highest carbon savings.")
 
-    if __name__ == "__main__": 
-        main()
+if __name__ == "__main__":
+    main()
