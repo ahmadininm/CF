@@ -381,7 +381,9 @@ def main():
     scenario_data = [[item] + [100.0]*int(num_scenarios) for item in bau_data_ordered["Item"]]
     scenario_df = pd.DataFrame(scenario_data, columns=scenario_columns)
 
-    st.write("Please assign values for each selected criterion to each scenario. Double-click a cell to edit. For (1-10) criteria, only enter values between 1 and 10.")
+    st.write("Assign usage percentages to each scenario for each BAU item. These percentages are relative to the BAU.
+        - **90%** means using **10% less** of that item compared to BAU.
+        - **120%** means using **20% more** of that item compared to BAU.")
 
     # Editable table for scenario percentages
     try:
