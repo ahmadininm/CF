@@ -376,7 +376,7 @@ def main():
 
     # Create a DataFrame with one column per scenario
     scenario_columns = ["Item"] + [f"{row['Scenario']} (%)" for index, row in edited_scenario_desc_df.iterrows()]
-    scenario_data = [[item] + [100.0]*int(num_scenarios) for item in bau_data_ordered["Item"]]
+    scenario_data = [[item] + [100.0]*int(num_scenarios) for item in bau_data["Item"]]
     scenario_df = pd.DataFrame(scenario_data, columns=scenario_columns)
 
     st.write("""
@@ -400,9 +400,9 @@ def main():
     results = []
     for col in edited_scenario_df.columns[1:]:
         usage_percentages = edited_scenario_df[col].values / 100.0
-        scenario_daily_emissions = (bau_data_ordered["Daily Usage (Units)"].values 
+        scenario_daily_emissions = (bau_data["Daily Usage (Units)"].values 
                                     * usage_percentages 
-                                    * bau_data_ordered["Emission Factor (kg CO₂e/unit)"].values).sum()
+                                    * bau_data["Emission Factor (kg CO₂e/unit)"].values).sum()
         scenario_annual_emissions = scenario_daily_emissions * 365
         co2_saving_kg = total_annual_bau - scenario_annual_emissions
         co2_saving_percent = (co2_saving_kg / total_annual_bau * 100) if total_annual_bau != 0 else 0
