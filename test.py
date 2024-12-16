@@ -7,6 +7,9 @@ import base64
 from io import BytesIO
 import openai  # For OpenAI API integration
 import importlib.metadata
+import time
+import logging
+from tenacity import retry, wait_random_exponential, stop_after_attempt, retry_if_exception_type
 
 # Import specific exceptions from openai.error instead of openai
 from openai.error import InvalidRequestError, AuthenticationError, RateLimitError, OpenAIError
@@ -16,7 +19,14 @@ from openai.error import InvalidRequestError, AuthenticationError, RateLimitErro
 # [OPENAI]
 # API_KEY = "your-openai-api-key"
 
-openai.api_key = st.secrets["OPENAI_API_KEY"]
+openai.api_key = st.secrets["OPENAI"]["API_KEY"]
+
+# ----------------------- Logging Configuration -----------------------
+logging.basicConfig(
+    filename='api_usage.log',
+    level=logging.INFO,
+    format='%(asctime)s - %(levelname)s - %(message)s'
+)
 
 # ----------------------- Helper Functions -----------------------
 def get_openai_version_importlib():
@@ -26,13 +36,44 @@ def get_openai_version_importlib():
     except importlib.metadata.PackageNotFoundError:
         return "Package not found."
 
-# Removed pkg_resources related functions
+# ----------------------- Retry Decorator -----------------------
+@retry(
+    retry=retry_if_exception_type(RateLimitError) | retry_if_exception_type(OpenAIError),
+    wait=wait_random_exponential(min=1, max=60),
+    stop=stop_after_attempt(6),
+    reraise=True
+)
+def call_openai_api(*args, **kwargs):
+    response = openai.ChatCompletion.create(*args, **kwargs)
+    # Log the API call
+    model = kwargs.get('model', 'unknown_model')
+    max_tokens = kwargs.get('max_tokens', 0)
+    logging.info(f"API Call: Model={model}, Max Tokens={max_tokens}")
+    return response
+
+# ----------------------- Throttling Function -----------------------
+if 'api_call_timestamps' not in st.session_state:
+    st.session_state.api_call_timestamps = []
+
+def can_make_api_call(max_rpm=3):
+    current_time = time.time()
+    # Remove timestamps older than 60 seconds
+    st.session_state.api_call_timestamps = [
+        timestamp for timestamp in st.session_state.api_call_timestamps
+        if current_time - timestamp < 60
+    ]
+    if len(st.session_state.api_call_timestamps) < max_rpm:
+        st.session_state.api_call_timestamps.append(current_time)
+        return True
+    return False
 
 # ----------------------- Test OpenAI Linkage -----------------------
 def test_openai_linkage():
+    if not can_make_api_call(max_rpm=3):
+        st.error("API rate limit reached. Please wait a moment before trying again.")
+        return
     try:
-        # Attempt a simple API call to test linkage
-        response = openai.ChatCompletion.create(
+        response = call_openai_api(
             model="gpt-3.5-turbo",
             messages=[
                 {"role": "system", "content": "You are a helpful assistant."},
@@ -43,16 +84,63 @@ def test_openai_linkage():
         )
         message = response.choices[0].message.content.strip()
         st.success(f"OpenAI API is working fine. Response: {message}")
+    except RateLimitError as e:
+        st.error(f"Rate limit exceeded. Please try again later. Error: {e}")
     except InvalidRequestError as e:
         st.error(f"OpenAI API test failed: {e}")
     except AuthenticationError as e:
         st.error(f"Authentication failed: {e}")
-    except RateLimitError as e:
-        st.error(f"Rate limit exceeded: {e}")
     except OpenAIError as e:
         st.error(f"OpenAI API error: {e}")
     except Exception as e:
         st.error(f"Unexpected error: {e}")
+
+# ----------------------- OpenAI Scenario Generation -----------------------
+def generate_scenarios(description, num_scenarios):
+    if not can_make_api_call(max_rpm=3):
+        st.error("API rate limit reached. Please wait a moment before trying again.")
+        return []
+    
+    prompt = (
+        f"Based on the following description of an organization's activities and sustainability goals, "
+        f"generate {num_scenarios} concise sustainability scenarios. "
+        f"Each scenario should include a name and a brief description.\n\n"
+        f"Description:\n{description}\n\n"
+        f"Scenarios:"
+    )
+    
+    try:
+        response = call_openai_api(
+            model="gpt-3.5-turbo",
+            messages=[
+                {"role": "system", "content": "You are an expert sustainability analyst."},
+                {"role": "user", "content": prompt}
+            ],
+            max_tokens=300,  # Reduced from 500 to optimize token usage
+            temperature=0.7,
+        )
+        scenarios_text = response.choices[0].message.content.strip()
+        scenarios = []
+        for scenario in scenarios_text.split('\n'):
+            if scenario.strip() == "":
+                continue
+            # Assuming scenarios are listed as "1. Name: Description"
+            if '.' in scenario:
+                parts = scenario.split('.', 1)
+                name_desc = parts[1].strip()
+                if ':' in name_desc:
+                    name, desc = name_desc.split(':', 1)
+                    scenarios.append({"name": name.strip(), "description": desc.strip()})
+        return scenarios
+    except RateLimitError as e:
+        st.error(f"Rate limit exceeded. Please try again later. Error: {e}")
+        return []
+    except OpenAIError as e:
+        st.error(f"OpenAI API Error: {e}")
+        return []
+    except Exception as e:
+        st.error(f"Unexpected error: {e}")
+        return []
 
 # ----------------------- Session State Management -----------------------
 def save_session_state():
@@ -106,56 +194,6 @@ def load_session_state(uploaded_file):
         st.success("Progress loaded successfully!")
     except Exception as e:
         st.error(f"Failed to load progress: {e}")
-
-# ----------------------- OpenAI Scenario Generation -----------------------
-def generate_scenarios(description, num_scenarios):
-    """
-    Uses OpenAI's GPT model to generate scenario suggestions based on the activities description.
-    Args:
-        description (str): The activities description input by the user.
-        num_scenarios (int): The number of scenarios to generate.
-    Returns:
-        list of dict: Generated scenarios with 'name' and 'description'.
-    """
-    prompt = (
-        f"Based on the following description of an organization's activities and sustainability goals, "
-        f"generate {num_scenarios} detailed sustainability scenarios. "
-        f"Each scenario should include a name and a brief description.\n\n"
-        f"Description:\n{description}\n\n"
-        f"Scenarios:"
-    )
-    
-    try:
-        response = openai.ChatCompletion.create(
-            model="gpt-3.5-turbo",  # You can choose a different model if desired
-            messages=[
-                {"role": "system", "content": "You are an expert sustainability analyst."},
-                {"role": "user", "content": prompt}
-            ],
-            max_tokens=500,
-            temperature=0.7,
-        )
-        # Use attribute access instead of dict-style
-        scenarios_text = response.choices[0].message.content.strip()
-        # Split scenarios based on numbering
-        scenarios = []
-        for scenario in scenarios_text.split('\n'):
-            if scenario.strip() == "":
-                continue
-            # Assuming scenarios are listed as "1. Name: Description"
-            if '.' in scenario:
-                parts = scenario.split('.', 1)
-                name_desc = parts[1].strip()
-                if ':' in name_desc:
-                    name, desc = name_desc.split(':', 1)
-                    scenarios.append({"name": name.strip(), "description": desc.strip()})
-        return scenarios
-    except OpenAIError as e:
-        st.error(f"OpenAI API Error: {e}")
-        return []
-    except Exception as e:
-        st.error(f"Unexpected error: {e}")
-        return []
 
 # ----------------------- Main Application -----------------------
 def main():
@@ -253,12 +291,12 @@ def main():
             key=f"bau_usage_{i}"
         )
     
-       # Option to add custom items
+    # Option to add custom items
     st.subheader("Add Custom Items (Optional)")
     st.write("If there are any additional sources of emissions not accounted for above, you can add them here.")
     if st.checkbox("Add custom items?"):
         num_custom_items = st.number_input("How many custom items would you like to add?", min_value=1, step=1, value=1)
-        for i in range(num_custom_items):
+        for i in range(int(num_custom_items)):
             item_name = st.text_input(f"Custom Item {i + 1} Name:", key=f"custom_item_name_{i}")
             emission_factor = st.number_input(
                 f"Custom Item {i + 1} Emission Factor (kg CO₂e/unit):", 
@@ -274,10 +312,15 @@ def main():
                 value=0.0,
                 key=f"custom_usage_{i}"
             )
-            # Add to BAU Data
-            new_row = pd.DataFrame({"Item": [item_name], "Daily Usage (Units)": [usage]})
-            bau_data = pd.concat([bau_data, new_row], ignore_index=True)
-            emission_factors[item_name] = emission_factor
+            if item_name.strip() != "":
+                # Add to BAU Data
+                new_row = pd.DataFrame({"Item": [item_name], "Daily Usage (Units)": [usage]})
+                bau_data = pd.concat([bau_data, new_row], ignore_index=True)
+                emission_factors[item_name] = emission_factor
+
+    # Update session state with updated BAU data
+    st.session_state.bau_data = bau_data
+    st.session_state.emission_factors = emission_factors
 
     # Fill missing emission factors in the DataFrame
     bau_data["Emission Factor (kg CO₂e/unit)"] = bau_data["Item"].map(emission_factors).fillna(0)
@@ -286,7 +329,7 @@ def main():
     bau_data["Daily Emissions (kg CO₂e)"] = bau_data["Daily Usage (Units)"] * bau_data["Emission Factor (kg CO₂e/unit)"]
     bau_data["Annual Emissions (kg CO₂e)"] = bau_data["Daily Emissions (kg CO₂e)"] * 365
 
-     # ----------------------- Ensure BAU Graph Maintains Input Order -----------------------
+    # ----------------------- Ensure BAU Graph Maintains Input Order -----------------------
 
     # Reorder bau_data to ensure default items come first, followed by custom items
     default_items = [
@@ -302,6 +345,9 @@ def main():
 
     # Convert 'Item' to a categorical type to preserve order in the bar chart
     bau_data_ordered['Item'] = pd.Categorical(bau_data_ordered['Item'], categories=bau_data_ordered['Item'], ordered=True)
+
+    # Update session state with ordered data
+    st.session_state.bau_data = bau_data_ordered
 
     # Display BAU summary
     st.write("### BAU Results")
@@ -325,7 +371,7 @@ def main():
         key="activities_description_input"
     )
     
-        # ----------------------- Scenario Generation -----------------------
+    # ----------------------- Scenario Generation -----------------------
     if activities_description.strip() != "":
         st.success("Activities description received. You can now define your scenarios based on this information.")
 
@@ -353,8 +399,6 @@ def main():
                     st.success("Scenarios generated successfully! You can now review and edit them as needed.")
                 else:
                     st.error("No scenarios were generated. Please try again or enter a more detailed description.")
-    
-    
 
     # ----------------------- Scenario Planning -----------------------
 
@@ -412,6 +456,9 @@ def main():
     # Convert columns (except Item) to numeric
     for col in edited_scenario_df.columns[1:]:
         edited_scenario_df[col] = pd.to_numeric(edited_scenario_df[col], errors='coerce').fillna(100.0)
+
+    # Save edited scenario percentages to session state
+    st.session_state['edited_scenario_df'] = edited_scenario_df
 
     # Calculate scenario emissions and savings
     results = []
@@ -523,7 +570,7 @@ def main():
                 if other_crit_name.strip() != "":
                     # Add the new "Other" criteria to the criteria_options
                     criteria_options[other_crit_name.strip()] = other_crit_desc.strip() if other_crit_desc.strip() != "" else "No description provided."
-
+    
     # Show descriptions for selected criteria (with HTML enabled)
     for crit in selected_criteria:
         st.markdown(f"**{crit}:** {criteria_options[crit]}", unsafe_allow_html=True)
@@ -727,5 +774,6 @@ def main():
                 if len(top_scenario) > 0:
                     st.success(f"The top-ranked scenario is **{top_scenario[0]}** with the highest carbon savings.")
 
+# Execute the main function
 if __name__ == "__main__":
     main()
