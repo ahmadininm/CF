@@ -253,8 +253,7 @@ def main():
             key=f"bau_usage_{i}"
         )
     
-    # Option to add custom items
-
+       # Option to add custom items
     st.subheader("Add Custom Items (Optional)")
     st.write("If there are any additional sources of emissions not accounted for above, you can add them here.")
     if st.checkbox("Add custom items?"):
@@ -281,40 +280,22 @@ def main():
             emission_factors[item_name] = emission_factor
 
     # Fill missing emission factors in the DataFrame
-    bau_data = st.session_state.bau_data.copy()
-    bau_data["Emission Factor (kg CO₂e/unit)"] = bau_data["Item"].map(st.session_state.emission_factors).fillna(0.0)
+    bau_data["Emission Factor (kg CO₂e/unit)"] = bau_data["Item"].map(emission_factors).fillna(0)
 
     # Calculate emissions for BAU
     bau_data["Daily Emissions (kg CO₂e)"] = bau_data["Daily Usage (Units)"] * bau_data["Emission Factor (kg CO₂e/unit)"]
     bau_data["Annual Emissions (kg CO₂e)"] = bau_data["Daily Emissions (kg CO₂e)"] * 365
 
-    # ----------------------- Ensure BAU Graph Maintains Input Order -----------------------
-
-    # Reorder bau_data to ensure default items come first, followed by custom items
-    default_items = [
-        "Gas (kWh/day)", 
-        "Electricity (kWh/day)", 
-        "Nitrogen (m³/day)", 
-        "Hydrogen (m³/day)", 
-        "Argon (m³/day)", 
-        "Helium (m³/day)"
-    ]
-    custom_items = bau_data[~bau_data["Item"].isin(default_items)]
-    bau_data_ordered = pd.concat([bau_data[bau_data["Item"].isin(default_items)], custom_items], ignore_index=True)
-
-    # Convert 'Item' to a categorical type to preserve order in the bar chart
-    bau_data_ordered['Item'] = pd.Categorical(bau_data_ordered['Item'], categories=bau_data_ordered['Item'], ordered=True)
-
     # Display BAU summary
     st.write("### BAU Results")
-    total_daily_bau = bau_data_ordered['Daily Emissions (kg CO₂e)'].sum()
-    total_annual_bau = bau_data_ordered['Annual Emissions (kg CO₂e)'].sum()
+    total_daily_bau = bau_data['Daily Emissions (kg CO₂e)'].sum()
+    total_annual_bau = bau_data['Annual Emissions (kg CO₂e)'].sum()
 
     st.write(f"**Total Daily Emissions (BAU):** {total_daily_bau:.2f} kg CO₂e/day")
     st.write(f"**Total Annual Emissions (BAU):** {total_annual_bau:.2f} kg CO₂e/year")
 
-    # Visualize BAU emissions with preserved order
-    st.bar_chart(bau_data_ordered.set_index("Item")["Daily Emissions (kg CO₂e)"], use_container_width=True)
+    # Visualize BAU emissions
+    st.bar_chart(bau_data.set_index("Item")["Daily Emissions (kg CO₂e)"], use_container_width=True)
 
     # ----------------------- Describe Activities to Propose Scenarios -----------------------
 
