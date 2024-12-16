@@ -11,7 +11,7 @@ import time
 import random  # Added for jitter in backoff
 
 # Import specific exceptions from openai.error instead of openai
-from openai.error import InvalidRequestError, AuthenticationError, RateLimitError, OpenAIError, APIConnectionError  # Removed APITimeoutError
+from openai.error import InvalidRequestError, AuthenticationError, RateLimitError, OpenAIError, APIConnectionError  # Added APIConnectionError
 
 # ----------------------- OpenAI Configuration -----------------------
 # Ensure you have set your OpenAI API key in Streamlit secrets as follows:
@@ -139,7 +139,7 @@ def generate_scenarios(description, num_scenarios, max_retries=5, initial_delay=
     retries = 0
     delay = initial_delay
     
-    while retries <= max_retries:
+    while retries < max_retries:
         try:
             response = openai.ChatCompletion.create(
                 model="gpt-3.5-turbo",  # You can choose a different model if desired
@@ -165,25 +165,15 @@ def generate_scenarios(description, num_scenarios, max_retries=5, initial_delay=
                         name, desc = name_desc.split(':', 1)
                         scenarios.append({"name": name.strip(), "description": desc.strip()})
             return scenarios
-        except RateLimitError as e:
+        except (RateLimitError, APIConnectionError) as e:
             retries += 1
             if retries > max_retries:
-                st.error("Rate limit exceeded. Please try again later.")
+                st.error(f"Rate limit exceeded or API connection error. Please try again later.")
                 return []
             wait_time = delay * (backoff_factor ** (retries - 1))
             if jitter:
                 wait_time += random.uniform(0, 1)
-            st.warning(f"Rate limit exceeded. Retrying in {wait_time:.2f} seconds... (Attempt {retries}/{max_retries})")
-            time.sleep(wait_time)
-        except APIConnectionError as e:
-            retries += 1
-            if retries > max_retries:
-                st.error("API connection error. Please check your network and try again later.")
-                return []
-            wait_time = delay * (backoff_factor ** (retries - 1))
-            if jitter:
-                wait_time += random.uniform(0, 1)
-            st.warning(f"API connection error. Retrying in {wait_time:.2f} seconds... (Attempt {retries}/{max_retries})")
+            st.warning(f"Encountered {type(e).__name__}: {e}. Retrying in {wait_time:.2f} seconds... (Attempt {retries}/{max_retries})")
             time.sleep(wait_time)
         except OpenAIError as e:
             st.error(f"OpenAI API Error: {e}")
@@ -407,7 +397,7 @@ def main():
                     st.success("Scenarios generated successfully! You can now review and edit them as needed.")
                 else:
                     st.error("No scenarios were generated. Please try again or enter a more detailed description.")
-
+    
 
     # ----------------------- Scenario Planning -----------------------
 
