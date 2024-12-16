@@ -8,7 +8,7 @@ from io import BytesIO
 import openai  # For OpenAI API integration
 import importlib.metadata
 import tenacity
-
+from tenacity import retry, stop_after_attempt, wait_random_exponential, retry_if_exception_type
 # Import specific exceptions from openai.error instead of openai
 from openai.error import InvalidRequestError, AuthenticationError, RateLimitError, OpenAIError
 
@@ -20,7 +20,7 @@ from openai.error import InvalidRequestError, AuthenticationError, RateLimitErro
 openai.api_key = st.secrets["OPENAI_API_KEY"]
 
 # ----------------------- Helper Functions -----------------------
-from tenacity import retry, stop_after_attempt, wait_random_exponential
+
 
 def get_openai_version_importlib():
     try:
