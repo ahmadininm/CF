@@ -5,11 +5,7 @@ import json
 import altair as alt  # For advanced visualizations
 import base64
 from io import BytesIO
-import openai  # For OpenAI API integration
-import importlib.metadata
-
-# Import specific exceptions from openai.error instead of openai
-from openai.error import InvalidRequestError, AuthenticationError, RateLimitError, OpenAIError
+import openai  # Reintroduced OpenAI for ChatGPT integration
 
 # ----------------------- OpenAI Configuration -----------------------
 # Ensure you have set your OpenAI API key in Streamlit secrets as follows:
@@ -18,43 +14,8 @@ from openai.error import InvalidRequestError, AuthenticationError, RateLimitErro
 
 openai.api_key = st.secrets["OPENAI_API_KEY"]
 
-# ----------------------- Helper Functions -----------------------
-def get_openai_version_importlib():
-    try:
-        version = importlib.metadata.version('openai')
-        return version
-    except importlib.metadata.PackageNotFoundError:
-        return "Package not found."
-
-# Removed pkg_resources related functions
-
-# ----------------------- Test OpenAI Linkage -----------------------
-def test_openai_linkage():
-    try:
-        # Attempt a simple API call to test linkage
-        response = openai.ChatCompletion.create(
-            model="gpt-3.5-turbo",
-            messages=[
-                {"role": "system", "content": "You are a helpful assistant."},
-                {"role": "user", "content": "Say hello!"}
-            ],
-            max_tokens=10,
-            temperature=0.7,
-        )
-        message = response.choices[0].message.content.strip()
-        st.success(f"OpenAI API is working fine. Response: {message}")
-    except InvalidRequestError as e:
-        st.error(f"OpenAI API test failed: {e}")
-    except AuthenticationError as e:
-        st.error(f"Authentication failed: {e}")
-    except RateLimitError as e:
-        st.error(f"Rate limit exceeded: {e}")
-    except OpenAIError as e:
-        st.error(f"OpenAI API error: {e}")
-    except Exception as e:
-        st.error(f"Unexpected error: {e}")
-
 # ----------------------- Session State Management -----------------------
+
 def save_session_state():
     """
     Serializes the necessary session state variables into a JSON-compatible dictionary.
@@ -108,6 +69,7 @@ def load_session_state(uploaded_file):
         st.error(f"Failed to load progress: {e}")
 
 # ----------------------- OpenAI Scenario Generation -----------------------
+
 def generate_scenarios(description, num_scenarios):
     """
     Uses OpenAI's GPT model to generate scenario suggestions based on the activities description.
@@ -135,8 +97,7 @@ def generate_scenarios(description, num_scenarios):
             max_tokens=500,
             temperature=0.7,
         )
-        # Use attribute access instead of dict-style
-        scenarios_text = response.choices[0].message.content.strip()
+        scenarios_text = response['choices'][0]['message']['content'].strip()
         # Split scenarios based on numbering
         scenarios = []
         for scenario in scenarios_text.split('\n'):
@@ -150,34 +111,22 @@ def generate_scenarios(description, num_scenarios):
                     name, desc = name_desc.split(':', 1)
                     scenarios.append({"name": name.strip(), "description": desc.strip()})
         return scenarios
-    except OpenAIError as e:
-        st.error(f"OpenAI API Error: {e}")
-        return []
     except Exception as e:
-        st.error(f"Unexpected error: {e}")
+        st.error(f"Error generating scenarios: {e}")
         return []
 
 # ----------------------- Main Application -----------------------
+
 def main():
     # Set page configuration
     st.set_page_config(page_title="Sustainability Decision Assistant", layout="wide")
-    
-    # Display OpenAI package version using importlib.metadata
-    st.sidebar.write("### OpenAI Package Version (importlib.metadata)")
-    openai_version = get_openai_version_importlib()
-    st.sidebar.write(f"**Installed OpenAI Version:** {openai_version}")
-    
-    # Optionally, display the OpenAI package version in the main app for verification
-    # st.write(f"OpenAI package version: {openai.__version__}")
-    
-    # Test OpenAI Linkage
-    test_openai_linkage()
 
     # Main Title and Description
     st.title("Sustainability Decision Assistant")
     st.write("*A tool to prioritize scenarios for carbon savings and resource efficiency, enabling data-driven sustainable decisions.*")
 
     # ----------------------- Save and Load Progress -----------------------
+    
     st.sidebar.header("🔄 Save and Load Progress")
     
     # Save Progress Button
@@ -197,7 +146,7 @@ def main():
         load_session_state(uploaded_file)
 
     # ----------------------- Initialize Session State -----------------------
-
+    
     if 'bau_data' not in st.session_state:
         default_items = [
             "Gas (kWh/day)", 
@@ -221,21 +170,15 @@ def main():
         })
         st.session_state.emission_factors = emission_factors.copy()
     
-    if 'scenario_desc_df' not in st.session_state:
-        st.session_state.scenario_desc_df = pd.DataFrame(columns=["Scenario", "Description"])
+    if 'edited_scenario_desc_df' not in st.session_state:
+        st.session_state.edited_scenario_desc_df = pd.DataFrame(columns=["Scenario", "Description"])
     
-    if 'criteria_df' not in st.session_state:
-        st.session_state.criteria_df = pd.DataFrame(columns=["Scenario"])
-    
+    if 'edited_criteria_df' not in st.session_state:
+        st.session_state.edited_criteria_df = pd.DataFrame()
+
     if 'selected_criteria' not in st.session_state:
         st.session_state.selected_criteria = []
     
-    if 'proposed_scenarios' not in st.session_state:
-        st.session_state.proposed_scenarios = []
-    
-    if 'ai_proposed' not in st.session_state:
-        st.session_state.ai_proposed = False
-
     # ----------------------- BAU Inputs -----------------------
 
     st.subheader("Enter Daily Usage for Business As Usual (BAU)")
@@ -252,7 +195,7 @@ def main():
             value=bau_data.loc[i, "Daily Usage (Units)"],
             key=f"bau_usage_{i}"
         )
-    
+
     # Option to add custom items
     st.subheader("Add Custom Items (Optional)")
     st.write("If there are any additional sources of emissions not accounted for above, you can add them here.")
@@ -340,8 +283,9 @@ def main():
         height=150,
         key="activities_description_input"
     )
-    
-        # ----------------------- Scenario Generation -----------------------
+
+    # ----------------------- Scenario Generation -----------------------
+
     if activities_description.strip() != "":
         st.success("Activities description received. You can now define your scenarios based on this information.")
 
@@ -369,255 +313,236 @@ def main():
                     st.success("Scenarios generated successfully! You can now review and edit them as needed.")
                 else:
                     st.error("No scenarios were generated. Please try again or enter a more detailed description.")
+
+    # ----------------------- Define Scenarios -----------------------
     
-    
+    if activities_description.strip() != "" and not st.session_state.edited_scenario_desc_df.empty:
+        st.subheader("Define Your Scenarios")
 
-    # ----------------------- Scenario Planning -----------------------
+        st.write("Specify how each scenario impacts your BAU emissions by assigning usage percentages to each BAU item.")
 
-    st.subheader("Scenario Planning (Editable Table)")
+        # Number of scenarios input
+        num_scenarios = st.number_input(
+            "How many scenarios do you want to define?",
+            min_value=1,
+            step=1,
+            value=len(st.session_state.edited_scenario_desc_df),
+            key="num_scenarios_input_2"
+        )
 
-    # Let users define scenarios manually based on their activities
-    if activities_description.strip() != "":
-        st.success("Activities description received. You can now define your scenarios based on this information.")
-    else:
-        st.info("Please describe your organization's activities to proceed with scenario planning.")
+        # Adjust the number of scenarios if changed
+        current_scenarios = st.session_state.edited_scenario_desc_df.shape[0]
+        if int(num_scenarios) > current_scenarios:
+            additional_scenarios = int(num_scenarios) - current_scenarios
+            for i in range(additional_scenarios):
+                st.session_state.edited_scenario_desc_df = st.session_state.edited_scenario_desc_df.append(
+                    {"Scenario": f"Scenario {current_scenarios + i + 1}", "Description": ""}, ignore_index=True
+                )
+        elif int(num_scenarios) < current_scenarios:
+            st.session_state.edited_scenario_desc_df = st.session_state.edited_scenario_desc_df.iloc[:int(num_scenarios)]
 
-    # Number of scenarios input
-    num_scenarios = st.number_input(
-        "How many scenarios do you want to add?",
-        min_value=1,
-        step=1,
-        value=1,
-        key="num_scenarios_input_2"
-    )
+        # Editable table for scenario descriptions
+        try:
+            edited_scenario_desc_df = st.data_editor(
+                st.session_state.edited_scenario_desc_df,
+                use_container_width=True,
+                key="scenario_desc_editor"
+            )
+        except AttributeError:
+            edited_scenario_desc_df = st.experimental_data_editor(
+                st.session_state.edited_scenario_desc_df,
+                use_container_width=True,
+                key="scenario_desc_editor"
+            )
 
-    # Create a DataFrame for scenario descriptions
-    scenario_desc_columns = ["Scenario", "Description"]
-    scenario_desc_data = [[f"Scenario {i+1}", ""] for i in range(int(num_scenarios))]
-    scenario_desc_df = pd.DataFrame(scenario_desc_data, columns=scenario_desc_columns)
+        # Save edited scenario descriptions to session state
+        st.session_state.edited_scenario_desc_df = edited_scenario_desc_df
 
-    st.write("Please describe each scenario. Double-click a cell to edit the description.")
+        # Create a DataFrame with one column per scenario
+        scenario_columns = ["Item"] + [f"{row['Scenario']} (%)" for index, row in edited_scenario_desc_df.iterrows()]
+        scenario_data = [[item] + [100.0]*int(num_scenarios) for item in bau_data_ordered["Item"]]
+        scenario_df = pd.DataFrame(scenario_data, columns=scenario_columns)
 
-    # Editable table for scenario descriptions
-    try:
-        edited_scenario_desc_df = st.data_editor(scenario_desc_df, use_container_width=True, key="scenario_desc_editor")
-    except AttributeError:
-        edited_scenario_desc_df = st.experimental_data_editor(scenario_desc_df, use_container_width=True, key="scenario_desc_editor")
+        st.write("Assign usage percentages to each scenario for each BAU item. Ensure that the percentages are between 0 and 100.")
 
-    # Save edited scenario descriptions to session state
-    st.session_state['edited_scenario_desc_df'] = edited_scenario_desc_df
+        # Editable table for scenario percentages
+        try:
+            edited_scenario_df = st.data_editor(
+                scenario_df,
+                use_container_width=True,
+                key="scenario_percent_editor"
+            )
+        except AttributeError:
+            edited_scenario_df = st.experimental_data_editor(
+                scenario_df,
+                use_container_width=True,
+                key="scenario_percent_editor"
+            )
 
-    # Create a DataFrame with one column per scenario
-    scenario_columns = ["Item"] + [f"{row['Scenario']} (%)" for index, row in edited_scenario_desc_df.iterrows()]
-    scenario_data = [[item] + [100.0]*int(num_scenarios) for item in bau_data_ordered["Item"]]
-    scenario_df = pd.DataFrame(scenario_data, columns=scenario_columns)
+        # Convert columns (except Item) to numeric
+        for col in edited_scenario_df.columns[1:]:
+            edited_scenario_df[col] = pd.to_numeric(edited_scenario_df[col], errors='coerce').fillna(100.0)
 
-    st.write("""
-        Assign usage percentages to each scenario for each BAU item. These percentages are relative to the BAU.
-        - **90%** means using **10% less** of that item compared to BAU.
-        - **120%** means using **20% more** of that item compared to BAU.
-    
-    """)
+        # Save edited criteria to session state
+        st.session_state['edited_criteria_df'] = edited_scenario_df
 
-    # Editable table for scenario percentages
-    try:
-        edited_scenario_df = st.data_editor(scenario_df, use_container_width=True, key="scenario_percent_editor")
-    except AttributeError:
-        edited_scenario_df = st.experimental_data_editor(scenario_df, use_container_width=True, key="scenario_percent_editor")
 
-    # Convert columns (except Item) to numeric
-    for col in edited_scenario_df.columns[1:]:
-        edited_scenario_df[col] = pd.to_numeric(edited_scenario_df[col], errors='coerce').fillna(100.0)
-
-    # Calculate scenario emissions and savings
-    results = []
-    for col in edited_scenario_df.columns[1:]:
-        usage_percentages = edited_scenario_df[col].values / 100.0
-        scenario_daily_emissions = (bau_data_ordered["Daily Usage (Units)"].values 
-                                    * usage_percentages 
-                                    * bau_data_ordered["Emission Factor (kg CO₂e/unit)"].values).sum()
-        scenario_annual_emissions = scenario_daily_emissions * 365
-        co2_saving_kg = total_annual_bau - scenario_annual_emissions
-        co2_saving_percent = (co2_saving_kg / total_annual_bau * 100) if total_annual_bau != 0 else 0
-
-        results.append({
-            "Scenario": col.replace(" (%)",""),  # Remove " (%)" from the scenario name
-            "Total Daily Emissions (kg CO₂e)": scenario_daily_emissions,
-            "Total Annual Emissions (kg CO₂e)": scenario_annual_emissions,
-            "CO₂ Saving (kg CO₂e/year)": co2_saving_kg,
-            "CO₂ Saving (%)": co2_saving_percent
-        })
-
-    results_df = pd.DataFrame(results)
-    # Reindex the results to start from 1
-    results_df.index = range(1, len(results_df) + 1)
-
-    st.write("### Scenario Results")
-    st.dataframe(results_df)
-
-    st.subheader("CO₂ Savings Compared to BAU (%)")
-    st.bar_chart(results_df.set_index("Scenario")["CO₂ Saving (%)"], use_container_width=True)
-
-    # Option to download scenario results as CSV
-    st.download_button(
-        label="Download Scenario Results as CSV",
-        data=results_df.to_csv(index=False),
-        file_name="scenario_results.csv",
-        mime="text/csv"
-    )
 
     # ----------------------- Additional Criteria -----------------------
 
-    st.write("Apart from the environmental impact (e.g., CO₂ saved) calculated above, which of the following criteria are also important to your organisation? Please select all that apply and then assign values for each scenario.")
-
-    # Define scale-based criteria globally, including 'Other - Negative Trend'
-    scale_criteria = {
-        "Technical Feasibility", 
-        "Supplier Reliability and Technology Readiness", 
-        "Implementation Complexity",
-        "Scalability", 
-        "Maintenance Requirements", 
-        "Regulatory Compliance", 
-        "Risk for Workforce Safety",
-        "Risk for Operations", 
-        "Impact on Product Quality", 
-        "Customer and Stakeholder Alignment",
-        "Priority for our organisation",
-        "Other - Negative Trend"  # For inversion
-    }
-
-    # Criteria options with brief, color-coded descriptions for the 1-10 scale criteria
-    criteria_options = {
-        "Technical Feasibility": "<span style='color:red;'>1-4: low feasibility</span>, <span style='color:orange;'>5-6: moderate</span>, <span style='color:green;'>7-10: high feasibility</span>",
-        "Supplier Reliability and Technology Readiness": "<span style='color:red;'>1-4: unreliable/immature</span>, <span style='color:orange;'>5-6: mostly reliable</span>, <span style='color:green;'>7-10: highly reliable/mature</span>",
-        "Implementation Complexity": "<span style='color:red;'>1-4: very complex</span>, <span style='color:orange;'>5-6: moderate complexity</span>, <span style='color:green;'>7-10: easy to implement</span>",
-        "Scalability": "<span style='color:red;'>1-4: hard to scale</span>, <span style='color:orange;'>5-6: moderate</span>, <span style='color:green;'>7-10: easy to scale</span>",
-        "Maintenance Requirements": "<span style='color:red;'>1-4: high maintenance</span>, <span style='color:orange;'>5-6: moderate</span>, <span style='color:green;'>7-10: low maintenance</span>",
-        "Regulatory Compliance": "<span style='color:red;'>1-4: risk of non-compliance</span>, <span style='color:orange;'>5-6: mostly compliant</span>, <span style='color:green;'>7-10: fully compliant</span>",
-        "Risk for Workforce Safety": "<span style='color:red;'>1-4: significant safety risks</span>, <span style='color:orange;'>5-6: moderate risks</span>, <span style='color:green;'>7-10: very low risk</span>",
-        "Risk for Operations": "<span style='color:red;'>1-4: high operational risk</span>, <span style='color:orange;'>5-6: moderate risk</span>, <span style='color:green;'>7-10: minimal risk</span>",
-        "Impact on Product Quality": "<span style='color:red;'>1-4: reduces quality</span>, <span style='color:orange;'>5-6: acceptable</span>, <span style='color:green;'>7-10: improves or maintains quality</span>",
-        "Customer and Stakeholder Alignment": "<span style='color:red;'>1-4: low alignment</span>, <span style='color:orange;'>5-6: moderate</span>, <span style='color:green;'>7-10: high alignment</span>",
-        "Priority for our organisation": "<span style='color:red;'>1-4: low priority</span>, <span style='color:orange;'>5-6: moderate</span>, <span style='color:green;'>7-10: top priority</span>",
-        "Initial investment (£)": "Enter the upfront cost needed (no scale limit).",
-        "Return on Investment (ROI)(years)": "Enter the time (in years) to recover the initial cost (no scale limit).",
-        "Other - Positive Trend": "Enter criteria where a higher number is more beneficial.",
-        "Other - Negative Trend": "Enter criteria where a higher number is less beneficial."
-    }
-
-    # Let user select criteria
-    selected_criteria = st.multiselect(
-        "Select the criteria you want to consider:",
-        list(criteria_options.keys()),
-        key="selected_criteria_multiselect"
-    )
-
-    # Allow adding multiple "Other" criteria with trend specification
-    if any(crit.startswith("Other -") for crit in selected_criteria):
-        other_trend_options = ["Other - Positive Trend", "Other - Negative Trend"]
-        selected_other_trends = [crit for crit in selected_criteria if crit in other_trend_options]
-        
-        # For each "Other" trend selected, allow adding multiple criteria
-        for trend in selected_other_trends:
-            st.write(f"### {trend}")
-            num_other = st.number_input(
-                f"How many '{trend}' criteria would you like to add?",
-                min_value=1,
-                step=1,
-                value=1,
-                key=f"num_{trend.replace(' ', '_')}_input"
-            )
-            for i in range(int(num_other)):
-                other_crit_name = st.text_input(
-                    f"{trend} Criterion {i+1} Name:",
-                    key=f"{trend.replace(' ', '_')}_name_{i}"
-                )
-                other_crit_desc = st.text_input(
-                    f"{trend} Criterion {i+1} Description:",
-                    key=f"{trend.replace(' ', '_')}_desc_{i}"
-                )
-                if other_crit_name.strip() != "":
-                    # Add the new "Other" criteria to the criteria_options
-                    criteria_options[other_crit_name.strip()] = other_crit_desc.strip() if other_crit_desc.strip() != "" else "No description provided."
-
-    # Show descriptions for selected criteria (with HTML enabled)
-    for crit in selected_criteria:
-        st.markdown(f"**{crit}:** {criteria_options[crit]}", unsafe_allow_html=True)
-
-    # ----------------------- Assign Criteria Values -----------------------
-
-    if selected_criteria:
-        st.write("### Assign Criteria Values to Each Scenario")
-        st.write("Double-click a cell to edit. For (1-10) criteria, only enter values between 1 and 10.")
-
-        # Create a DataFrame for criteria values
-        criteria_columns = ["Scenario"] + selected_criteria
-        criteria_data = []
-        for index, row in edited_scenario_desc_df.iterrows():
-            scenario = row["Scenario"]
-            criteria_values = [scenario] + [1 for _ in selected_criteria]  # Initialize with 1
-            criteria_data.append(criteria_values)
-        criteria_df = pd.DataFrame(criteria_data, columns=criteria_columns)
-
-        # Define column configurations
-        column_config = {
-            "Scenario": st.column_config.TextColumn(
-                "Scenario",
-                disabled=True  # Make Scenario column read-only
-            )
+    if st.session_state.edited_criteria_df.empty:
+        selected_criteria = []
+    else:
+        st.write("Apart from the environmental impact (e.g., CO₂ saved) calculated above, which of the following criteria are also important to your organisation? Please select all that apply and then assign values for each scenario.")
+    
+        # Define scale-based criteria globally, including 'Other - Negative Trend'
+        scale_criteria = {
+            "Technical Feasibility", 
+            "Supplier Reliability and Technology Readiness", 
+            "Implementation Complexity",
+            "Scalability", 
+            "Maintenance Requirements", 
+            "Regulatory Compliance", 
+            "Risk for Workforce Safety",
+            "Risk for Operations", 
+            "Impact on Product Quality", 
+            "Customer and Stakeholder Alignment",
+            "Priority for our organisation",
+            "Other - Negative Trend"  # For inversion
         }
-
-        for c in selected_criteria:
-            if c in scale_criteria:
-                column_config[c] = st.column_config.NumberColumn(
-                    label=c,
-                    format="%.0f",           # Ensures integer input
-                    min_value=1, 
-                    max_value=10
+    
+        # Criteria options with brief, color-coded descriptions for the 1-10 scale criteria
+        criteria_options = {
+            "Technical Feasibility": "<span style='color:red;'>1-4: low feasibility</span>, <span style='color:orange;'>5-6: moderate</span>, <span style='color:green;'>7-10: high feasibility</span>",
+            "Supplier Reliability and Technology Readiness": "<span style='color:red;'>1-4: unreliable/immature</span>, <span style='color:orange;'>5-6: mostly reliable</span>, <span style='color:green;'>7-10: highly reliable/mature</span>",
+            "Implementation Complexity": "<span style='color:red;'>1-4: very complex</span>, <span style='color:orange;'>5-6: moderate complexity</span>, <span style='color:green;'>7-10: easy to implement</span>",
+            "Scalability": "<span style='color:red;'>1-4: hard to scale</span>, <span style='color:orange;'>5-6: moderate</span>, <span style='color:green;'>7-10: easy to scale</span>",
+            "Maintenance Requirements": "<span style='color:red;'>1-4: high maintenance</span>, <span style='color:orange;'>5-6: moderate</span>, <span style='color:green;'>7-10: low maintenance</span>",
+            "Regulatory Compliance": "<span style='color:red;'>1-4: risk of non-compliance</span>, <span style='color:orange;'>5-6: mostly compliant</span>, <span style='color:green;'>7-10: fully compliant</span>",
+            "Risk for Workforce Safety": "<span style='color:red;'>1-4: significant safety risks</span>, <span style='color:orange;'>5-6: moderate risks</span>, <span style='color:green;'>7-10: very low risk</span>",
+            "Risk for Operations": "<span style='color:red;'>1-4: high operational risk</span>, <span style='color:orange;'>5-6: moderate risk</span>, <span style='color:green;'>7-10: minimal risk</span>",
+            "Impact on Product Quality": "<span style='color:red;'>1-4: reduces quality</span>, <span style='color:orange;'>5-6: acceptable</span>, <span style='color:green;'>7-10: improves or maintains quality</span>",
+            "Customer and Stakeholder Alignment": "<span style='color:red;'>1-4: low alignment</span>, <span style='color:orange;'>5-6: moderate</span>, <span style='color:green;'>7-10: high alignment</span>",
+            "Priority for our organisation": "<span style='color:red;'>1-4: low priority</span>, <span style='color:orange;'>5-6: moderate</span>, <span style='color:green;'>7-10: top priority</span>",
+            "Initial investment (£)": "Enter the upfront cost needed (no scale limit).",
+            "Return on Investment (ROI)(years)": "Enter the time (in years) to recover the initial cost (no scale limit).",
+            "Other - Positive Trend": "Enter criteria where a higher number is more beneficial.",
+            "Other - Negative Trend": "Enter criteria where a higher number is less beneficial."
+        }
+    
+        # Let user select criteria
+        selected_criteria = st.multiselect(
+            "Select the criteria you want to consider:",
+            list(criteria_options.keys()),
+            key="selected_criteria_multiselect"
+        )
+    
+        # Allow adding multiple "Other" criteria with trend specification
+        if any(crit.startswith("Other -") for crit in selected_criteria):
+            other_trend_options = ["Other - Positive Trend", "Other - Negative Trend"]
+            selected_other_trends = [crit for crit in selected_criteria if crit in other_trend_options]
+            
+            # For each "Other" trend selected, allow adding multiple criteria
+            for trend in selected_other_trends:
+                st.write(f"### {trend}")
+                num_other = st.number_input(
+                    f"How many '{trend}' criteria would you like to add?",
+                    min_value=1,
+                    step=1,
+                    value=1,
+                    key=f"num_{trend.replace(' ', '_')}_input"
                 )
-            else:
-                column_config[c] = st.column_config.NumberColumn(
-                    label=c
-                    # No additional constraints
+                for i in range(int(num_other)):
+                    other_crit_name = st.text_input(
+                        f"{trend} Criterion {i+1} Name:",
+                        key=f"{trend.replace(' ', '_')}_name_{i}"
+                    )
+                    other_crit_desc = st.text_input(
+                        f"{trend} Criterion {i+1} Description:",
+                        key=f"{trend.replace(' ', '_')}_desc_{i}"
+                    )
+                    if other_crit_name.strip() != "":
+                        # Add the new "Other" criteria to the criteria_options
+                        criteria_options[other_crit_name.strip()] = other_crit_desc.strip() if other_crit_desc.strip() != "" else "No description provided."
+
+        # Show descriptions for selected criteria (with HTML enabled)
+        for crit in selected_criteria:
+            st.markdown(f"**{crit}:** {criteria_options[crit]}", unsafe_allow_html=True)
+
+        # ----------------------- Assign Criteria Values -----------------------
+
+        if selected_criteria and not st.session_state.edited_scenario_desc_df.empty:
+            st.write("### Assign Criteria Values to Each Scenario")
+            st.write("Double-click a cell to edit. For (1-10) criteria, only enter values between 1 and 10.")
+
+            # Create a DataFrame for criteria values
+            criteria_columns = ["Scenario"] + selected_criteria
+            criteria_data = []
+            for index, row in st.session_state.edited_scenario_desc_df.iterrows():
+                scenario = row["Scenario"]
+                criteria_values = [scenario] + [1 for _ in selected_criteria]  # Initialize with 1
+                criteria_data.append(criteria_values)
+            criteria_df = pd.DataFrame(criteria_data, columns=criteria_columns)
+
+            # Define column configurations
+            column_config = {
+                "Scenario": st.column_config.TextColumn(
+                    "Scenario",
+                    disabled=True  # Make Scenario column read-only
+                )
+            }
+
+            for c in selected_criteria:
+                if c in scale_criteria:
+                    column_config[c] = st.column_config.NumberColumn(
+                        label=c,
+                        format="%.0f",           # Ensures integer input
+                        min_value=1, 
+                        max_value=10
+                    )
+                else:
+                    column_config[c] = st.column_config.NumberColumn(
+                        label=c
+                        # No additional constraints
+                    )
+
+            # Editable table for criteria values with input constraints
+            try:
+                edited_criteria_df = st.data_editor(
+                    criteria_df,
+                    use_container_width=True,
+                    key="criteria_editor_final",
+                    num_rows="fixed",  # Fixed number of rows
+                    disabled=False,
+                    column_config=column_config,
+                    hide_index=True
+                )
+            except TypeError as e:
+                st.error(f"Data Editor Error: {e}")
+                st.stop()
+            except AttributeError as e:
+                # Fallback for older Streamlit versions
+                edited_criteria_df = st.experimental_data_editor(
+                    criteria_df,
+                    use_container_width=True,
+                    key="criteria_editor_final",
+                    num_rows="fixed",  # Fixed number of rows
+                    disabled=False
                 )
 
-        # Editable table for criteria values with input constraints
-        try:
-            edited_criteria_df = st.data_editor(
-                criteria_df,
-                use_container_width=True,
-                key="criteria_editor_final",
-                num_rows="fixed",  # Fixed number of rows
-                disabled=False,
-                column_config=column_config,
-                hide_index=True
-            )
-        except TypeError as e:
-            st.error(f"Data Editor Error: {e}")
-            st.stop()
-        except AttributeError as e:
-            # Fallback for older Streamlit versions
-            edited_criteria_df = st.experimental_data_editor(
-                criteria_df,
-                use_container_width=True,
-                key="criteria_editor_final",
-                num_rows="fixed",  # Fixed number of rows
-                disabled=False
-            )
+            # Convert columns (except Scenario) to numeric and enforce constraints
+            for col in edited_criteria_df.columns[1:]:
+                edited_criteria_df[col] = pd.to_numeric(edited_criteria_df[col], errors='coerce').fillna(1.0)
+                if col in scale_criteria:
+                    edited_criteria_df[col] = edited_criteria_df[col].clip(lower=1.0, upper=10.0)
 
-        # Convert columns (except Scenario) to numeric and enforce constraints
-        for col in edited_criteria_df.columns[1:]:
-            edited_criteria_df[col] = pd.to_numeric(edited_criteria_df[col], errors='coerce').fillna(1.0)
-            if col in scale_criteria:
-                edited_criteria_df[col] = edited_criteria_df[col].clip(lower=1.0, upper=10.0)
-
-        # Save edited criteria to session state
-        st.session_state['edited_criteria_df'] = edited_criteria_df
+            # Save edited criteria to session state
+            st.session_state['edited_criteria_df'] = edited_criteria_df
 
     # ----------------------- Run Model -----------------------
 
     # Only proceed if criteria were selected and edited_criteria_df is defined
-    if selected_criteria and 'edited_criteria_df' in st.session_state and not st.session_state.edited_criteria_df.empty:
+    if 'edited_criteria_df' in st.session_state and not st.session_state.edited_criteria_df.empty:
         if st.button("Run Model"):
             # Check if all required values are filled
             if st.session_state.edited_criteria_df.isnull().values.any():
