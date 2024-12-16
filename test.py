@@ -15,15 +15,12 @@ from tenacity import retry, wait_random_exponential, stop_after_attempt, retry_i
 from openai.error import InvalidRequestError, AuthenticationError, RateLimitError, OpenAIError
 
 # ----------------------- OpenAI Configuration -----------------------
-# Ensure you have set your OpenAI API key in Streamlit secrets as follows:
-# [OPENAI]
-# API_KEY = "your-openai-api-key"
-
+# Attempt to load the OpenAI API key from secrets
 try:
     openai.api_key = st.secrets["OPENAI"]["API_KEY"]
 except KeyError:
     st.error(
-        "OpenAI API key not found in secrets. Please add it to `secrets.toml` under the `[OPENAI]` section."
+        "🔑 OpenAI API key not found. Please add it to `secrets.toml` under the `[OPENAI]` section or set it in Streamlit Cloud secrets."
     )
     st.stop()
 
@@ -76,7 +73,7 @@ def can_make_api_call(max_rpm=3):
 # ----------------------- Test OpenAI Linkage -----------------------
 def test_openai_linkage():
     if not can_make_api_call(max_rpm=3):
-        st.error("API rate limit reached. Please wait a moment before trying again.")
+        st.error("⚠️ API rate limit reached. Please wait a moment before trying again.")
         return
     try:
         response = call_openai_api(
@@ -89,22 +86,22 @@ def test_openai_linkage():
             temperature=0.7,
         )
         message = response.choices[0].message.content.strip()
-        st.success(f"OpenAI API is working fine. Response: {message}")
+        st.success(f"✅ OpenAI API is working fine. Response: {message}")
     except RateLimitError as e:
-        st.error(f"Rate limit exceeded. Please try again later. Error: {e}")
+        st.error(f"⚠️ Rate limit exceeded. Please try again later. Error: {e}")
     except InvalidRequestError as e:
-        st.error(f"OpenAI API test failed: {e}")
+        st.error(f"❌ OpenAI API test failed: {e}")
     except AuthenticationError as e:
-        st.error(f"Authentication failed: {e}")
+        st.error(f"🔐 Authentication failed: {e}")
     except OpenAIError as e:
-        st.error(f"OpenAI API error: {e}")
+        st.error(f"❌ OpenAI API error: {e}")
     except Exception as e:
-        st.error(f"Unexpected error: {e}")
+        st.error(f"❓ Unexpected error: {e}")
 
 # ----------------------- OpenAI Scenario Generation -----------------------
 def generate_scenarios(description, num_scenarios):
     if not can_make_api_call(max_rpm=3):
-        st.error("API rate limit reached. Please wait a moment before trying again.")
+        st.error("⚠️ API rate limit reached. Please wait a moment before trying again.")
         return []
     
     prompt = (
@@ -139,13 +136,13 @@ def generate_scenarios(description, num_scenarios):
                     scenarios.append({"name": name.strip(), "description": desc.strip()})
         return scenarios
     except RateLimitError as e:
-        st.error(f"Rate limit exceeded. Please try again later. Error: {e}")
+        st.error(f"⚠️ Rate limit exceeded. Please try again later. Error: {e}")
         return []
     except OpenAIError as e:
-        st.error(f"OpenAI API Error: {e}")
+        st.error(f"❌ OpenAI API Error: {e}")
         return []
     except Exception as e:
-        st.error(f"Unexpected error: {e}")
+        st.error(f"❓ Unexpected error: {e}")
         return []
 
 # ----------------------- Session State Management -----------------------
@@ -197,9 +194,9 @@ def load_session_state(uploaded_file):
             criteria_values_loaded[numeric_cols] = criteria_values_loaded[numeric_cols].apply(pd.to_numeric, errors='coerce').fillna(1.0)
             st.session_state.edited_criteria_df = criteria_values_loaded
         
-        st.success("Progress loaded successfully!")
+        st.success("✅ Progress loaded successfully!")
     except Exception as e:
-        st.error(f"Failed to load progress: {e}")
+        st.error(f"❌ Failed to load progress: {e}")
 
 # ----------------------- Main Application -----------------------
 def main():
@@ -207,12 +204,9 @@ def main():
     st.set_page_config(page_title="Sustainability Decision Assistant", layout="wide")
     
     # Display OpenAI package version using importlib.metadata
-    st.sidebar.write("### OpenAI Package Version (importlib.metadata)")
+    st.sidebar.write("### OpenAI Package Version")
     openai_version = get_openai_version_importlib()
     st.sidebar.write(f"**Installed OpenAI Version:** {openai_version}")
-    
-    # Optionally, display the OpenAI package version in the main app for verification
-    # st.write(f"OpenAI package version: {openai.__version__}")
     
     # Test OpenAI Linkage
     test_openai_linkage()
@@ -232,7 +226,7 @@ def main():
         b64 = base64.b64encode(json_data.encode()).decode()
         href = f'<a href="data:text/json;base64,{b64}" download="sustainability_progress.json">Download Progress</a>'
         st.sidebar.markdown(href, unsafe_allow_html=True)
-        st.sidebar.success("Progress saved! Click the link to download.")
+        st.sidebar.success("✅ Progress saved! Click the link to download.")
     
     # Load Progress Uploader
     st.sidebar.write("### Load Progress")
@@ -379,7 +373,7 @@ def main():
     
     # ----------------------- Scenario Generation -----------------------
     if activities_description.strip() != "":
-        st.success("Activities description received. You can now define your scenarios based on this information.")
+        st.success("✅ Activities description received. You can now define your scenarios based on this information.")
 
         st.subheader("Generate Scenario Suggestions")
         st.write("Click the button below to generate scenario suggestions based on your activities description.")
@@ -392,7 +386,7 @@ def main():
                 value=3,
                 key="num_scenarios_to_generate"
             )
-            with st.spinner("Generating scenarios..."):
+            with st.spinner("🕒 Generating scenarios..."):
                 generated_scenarios = generate_scenarios(activities_description, int(num_scenarios))
                 if generated_scenarios:
                     # Create a DataFrame for scenario descriptions
@@ -402,9 +396,9 @@ def main():
                     
                     # Update the session state with generated scenarios
                     st.session_state.edited_scenario_desc_df = scenario_desc_df
-                    st.success("Scenarios generated successfully! You can now review and edit them as needed.")
+                    st.success("✅ Scenarios generated successfully! You can now review and edit them as needed.")
                 else:
-                    st.error("No scenarios were generated. Please try again or enter a more detailed description.")
+                    st.error("❌ No scenarios were generated. Please try again or enter a more detailed description.")
 
     # ----------------------- Scenario Planning -----------------------
 
@@ -412,9 +406,9 @@ def main():
 
     # Let users define scenarios manually based on their activities
     if activities_description.strip() != "":
-        st.success("Activities description received. You can now define your scenarios based on this information.")
+        st.success("✅ Activities description received. You can now define your scenarios based on this information.")
     else:
-        st.info("Please describe your organization's activities to proceed with scenario planning.")
+        st.info("ℹ️ Please describe your organization's activities to proceed with scenario planning.")
 
     # Number of scenarios input
     num_scenarios = st.number_input(
@@ -430,7 +424,7 @@ def main():
     scenario_desc_data = [[f"Scenario {i+1}", ""] for i in range(int(num_scenarios))]
     scenario_desc_df = pd.DataFrame(scenario_desc_data, columns=scenario_desc_columns)
 
-    st.write("Please describe each scenario. Double-click a cell to edit the description.")
+    st.write("📝 Please describe each scenario. Double-click a cell to edit the description.")
 
     # Editable table for scenario descriptions
     try:
@@ -448,10 +442,9 @@ def main():
     scenario_df = pd.DataFrame(scenario_data, columns=scenario_columns)
 
     st.write("""
-        Assign usage percentages to each scenario for each BAU item. These percentages are relative to the BAU.
+        📊 **Assign usage percentages to each scenario for each BAU item. These percentages are relative to the BAU.**
         - **90%** means using **10% less** of that item compared to BAU.
         - **120%** means using **20% more** of that item compared to BAU.
-    
     """)
 
     # Editable table for scenario percentages
@@ -494,12 +487,12 @@ def main():
     st.write("### Scenario Results")
     st.dataframe(results_df)
 
-    st.subheader("CO₂ Savings Compared to BAU (%)")
+    st.subheader("📈 CO₂ Savings Compared to BAU (%)")
     st.bar_chart(results_df.set_index("Scenario")["CO₂ Saving (%)"], use_container_width=True)
 
     # Option to download scenario results as CSV
     st.download_button(
-        label="Download Scenario Results as CSV",
+        label="💾 Download Scenario Results as CSV",
         data=results_df.to_csv(index=False),
         file_name="scenario_results.csv",
         mime="text/csv"
@@ -507,7 +500,7 @@ def main():
 
     # ----------------------- Additional Criteria -----------------------
 
-    st.write("Apart from the environmental impact (e.g., CO₂ saved) calculated above, which of the following criteria are also important to your organisation? Please select all that apply and then assign values for each scenario.")
+    st.write("📌 **Apart from the environmental impact (e.g., CO₂ saved) calculated above, which of the following criteria are also important to your organisation?** Please select all that apply and then assign values for each scenario.")
 
     # Define scale-based criteria globally, including 'Other - Negative Trend'
     scale_criteria = {
@@ -587,7 +580,7 @@ def main():
 
     if selected_criteria:
         st.write("### Assign Criteria Values to Each Scenario")
-        st.write("Double-click a cell to edit. For (1-10) criteria, only enter values between 1 and 10.")
+        st.write("🖊️ Double-click a cell to edit. For (1-10) criteria, only enter values between 1 and 10.")
 
         # Create a DataFrame for criteria values
         criteria_columns = ["Scenario"] + selected_criteria
@@ -632,7 +625,7 @@ def main():
                 hide_index=True
             )
         except TypeError as e:
-            st.error(f"Data Editor Error: {e}")
+            st.error(f"⚠️ Data Editor Error: {e}")
             st.stop()
         except AttributeError as e:
             # Fallback for older Streamlit versions
@@ -657,10 +650,10 @@ def main():
 
     # Only proceed if criteria were selected and edited_criteria_df is defined
     if selected_criteria and 'edited_criteria_df' in st.session_state and not st.session_state.edited_criteria_df.empty:
-        if st.button("Run Model"):
+        if st.button("🔍 Run Model"):
             # Check if all required values are filled
             if st.session_state.edited_criteria_df.isnull().values.any():
-                st.error("Please ensure all criteria values are filled.")
+                st.error("❗ Please ensure all criteria values are filled.")
             else:
                 # Create a copy for scaled results
                 scaled_criteria_df = st.session_state.edited_criteria_df.copy()
@@ -750,7 +743,7 @@ def main():
                 ).properties(
                     width=700,
                     height=400,
-                    title="Scenario Scores (Normalized 1-10)"
+                    title="📊 Scenario Scores (Normalized 1-10)"
                 )
 
                 st.altair_chart(chart, use_container_width=True)
@@ -780,7 +773,7 @@ def main():
 
                 top_scenario = scaled_criteria_df.loc[scaled_criteria_df['Rank'] == 1, 'Scenario'].values
                 if len(top_scenario) > 0:
-                    st.success(f"The top-ranked scenario is **{top_scenario[0]}** with the highest carbon savings.")
+                    st.success(f"🏆 The top-ranked scenario is **{top_scenario[0]}** with the highest carbon savings.")
 
 if __name__ == "__main__":
     main()
