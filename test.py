@@ -7,20 +7,44 @@ import base64
 from io import BytesIO
 import openai  # For OpenAI API integration
 import importlib.metadata
-from openai.error import InvalidRequestError, AuthenticationError, RateLimitError, OpenAIError
-from tenacity import retry, wait_random_exponential, stop_after_attempt, retry_if_exception_type
+import logging
+
+# For retry logic
+from tenacity import (
+    retry,
+    stop_after_attempt,
+    wait_random_exponential,
+    retry_if_exception_type
+)
+
+from openai.error import (
+    InvalidRequestError,
+    AuthenticationError,
+    RateLimitError,
+    OpenAIError
+)
+
+# ----------------------- Logging Setup -----------------------
+logger = logging.getLogger(_name_)
+logger.setLevel(logging.INFO)
+handler = logging.StreamHandler()
+handler.setFormatter(logging.Formatter('[%(asctime)s] %(levelname)s in %(name)s: %(message)s'))
+logger.addHandler(handler)
 
 # ----------------------- OpenAI Configuration -----------------------
 openai.api_key = st.secrets["OPENAI_API_KEY"]
 
-# ----------------------- Retry Decorator -----------------------
+# ----------------------- Retry Logic Wrapper -----------------------
 @retry(
     wait=wait_random_exponential(min=1, max=60),
     stop=stop_after_attempt(6),
     retry=retry_if_exception_type(RateLimitError)
 )
-def call_openai_api_with_backoff(**kwargs):
-    return openai.ChatCompletion.create(**kwargs)
+def call_openai_api_with_backoff(func, **kwargs):
+    """
+    Calls the OpenAI API function with retry logic for RateLimitError.
+    """
+    return func(**kwargs)
 
 # ----------------------- Helper Functions -----------------------
 def get_openai_version_importlib():
@@ -34,6 +58,7 @@ def get_openai_version_importlib():
 def test_openai_linkage():
     try:
         response = call_openai_api_with_backoff(
+            openai.ChatCompletion.create,
             model="gpt-3.5-turbo",
             messages=[
                 {"role": "system", "content": "You are a helpful assistant."},
@@ -55,6 +80,7 @@ def test_openai_linkage():
     except Exception as e:
         st.error(f"❓ Unexpected error: {e}")
 
+# ----------------------- Session State Management -----------------------
 def save_session_state():
     """
     Serializes the necessary session state variables into a JSON-compatible dictionary.
@@ -127,6 +153,7 @@ def generate_scenarios(description, num_scenarios):
     
     try:
         response = call_openai_api_with_backoff(
+            openai.ChatCompletion.create,
             model="gpt-3.5-turbo",
             messages=[
                 {"role": "system", "content": "You are an expert sustainability analyst."},
@@ -141,7 +168,6 @@ def generate_scenarios(description, num_scenarios):
         for scenario in scenarios_text.split('\n'):
             if scenario.strip() == "":
                 continue
-            # Assuming scenarios are listed as "1. Name: Description"
             if '.' in scenario:
                 parts = scenario.split('.', 1)
                 name_desc = parts[1].strip()
@@ -165,7 +191,7 @@ def main():
     st.sidebar.write("### OpenAI Package Version (importlib.metadata)")
     openai_version = get_openai_version_importlib()
     st.sidebar.write(f"Installed OpenAI Version: {openai_version}")
-
+    
     # Test OpenAI Linkage
     test_openai_linkage()
 
@@ -233,6 +259,8 @@ def main():
 
     # ----------------------- BAU Inputs -----------------------
     st.subheader("Enter Daily Usage for Business As Usual (BAU)")
+
+    # Display BAU Inputs
     bau_data = st.session_state.bau_data
     emission_factors = st.session_state.emission_factors
 
@@ -278,7 +306,7 @@ def main():
     bau_data["Daily Emissions (kg CO₂e)"] = bau_data["Daily Usage (Units)"] * bau_data["Emission Factor (kg CO₂e/unit)"]
     bau_data["Annual Emissions (kg CO₂e)"] = bau_data["Daily Emissions (kg CO₂e)"] * 365
 
-    # Reorder BAU data to ensure default items come first
+    # Reorder bau_data to ensure default items come first
     default_items = [
         "Gas (kWh/day)", 
         "Electricity (kWh/day)", 
@@ -312,14 +340,15 @@ def main():
         height=150,
         key="activities_description_input"
     )
-
+    
+    # ----------------------- Scenario Generation -----------------------
     if activities_description.strip() != "":
         st.success("Activities description received. You can now define your scenarios based on this information.")
 
         st.subheader("Generate Scenario Suggestions")
         st.write("Click the button below to generate scenario suggestions based on your activities description.")
 
-        num_scenarios_to_generate = st.number_input(
+        num_scenarios_button = st.number_input(
             "How many scenarios would you like to generate?",
             min_value=1,
             step=1,
@@ -329,18 +358,24 @@ def main():
 
         if st.button("Generate Scenarios"):
             with st.spinner("Generating scenarios..."):
-                generated_scenarios = generate_scenarios(activities_description, int(num_scenarios_to_generate))
+                generated_scenarios = generate_scenarios(activities_description, int(num_scenarios_button))
                 if generated_scenarios:
                     scenario_desc_columns = ["Scenario", "Description"]
                     scenario_desc_data = [[scenario['name'], scenario['description']] for scenario in generated_scenarios]
                     scenario_desc_df = pd.DataFrame(scenario_desc_data, columns=scenario_desc_columns)
+                    
                     st.session_state.edited_scenario_desc_df = scenario_desc_df
                     st.success("Scenarios generated successfully! You can now review and edit them as needed.")
                 else:
                     st.error("No scenarios were generated. Please try again or enter a more detailed description.")
-
+    
     # ----------------------- Scenario Planning -----------------------
     st.subheader("Scenario Planning (Editable Table)")
+
+    if activities_description.strip() != "":
+        st.success("Activities description received. You can now define your scenarios based on this information.")
+    else:
+        st.info("Please describe your organization's activities to proceed with scenario planning.")
 
     # Number of scenarios input
     num_scenarios = st.number_input(
@@ -418,7 +453,8 @@ def main():
     )
 
     # ----------------------- Additional Criteria -----------------------
-    st.write("Apart from the environmental impact (e.g., CO₂ saved) calculated above, which criteria are also important?")
+    st.write("Apart from the environmental impact (e.g., CO₂ saved) calculated above, which of the following criteria are also important to your organisation? Please select all that apply and then assign values for each scenario.")
+
     scale_criteria = {
         "Technical Feasibility", 
         "Supplier Reliability and Technology Readiness", 
@@ -483,6 +519,7 @@ def main():
                 if other_crit_name.strip() != "":
                     criteria_options[other_crit_name.strip()] = other_crit_desc.strip() if other_crit_desc.strip() != "" else "No description provided."
 
+    # Show descriptions for selected criteria
     for crit in selected_criteria:
         st.markdown(f"{crit}: {criteria_options[crit]}", unsafe_allow_html=True)
 
@@ -494,7 +531,7 @@ def main():
         criteria_data = []
         for index, row in edited_scenario_desc_df.iterrows():
             scenario = row["Scenario"]
-            criteria_values = [scenario] + [1 for _ in selected_criteria]
+            criteria_values = [scenario] + [1 for _ in selected_criteria]  # Initialize with 1
             criteria_data.append(criteria_values)
         criteria_df = pd.DataFrame(criteria_data, columns=criteria_columns)
 
@@ -514,7 +551,9 @@ def main():
                     max_value=10
                 )
             else:
-                column_config[c] = st.column_config.NumberColumn(label=c)
+                column_config[c] = st.column_config.NumberColumn(
+                    label=c
+                )
 
         try:
             edited_criteria_df = st.data_editor(
@@ -551,6 +590,7 @@ def main():
                 st.error("Please ensure all criteria values are filled.")
             else:
                 scaled_criteria_df = st.session_state.edited_criteria_df.copy()
+
                 criteria_to_normalize = ["Return on Investment (ROI)(years)", "Initial investment (£)", "Other - Positive Trend", "Other - Negative Trend"]
 
                 for crit in criteria_to_normalize:
@@ -590,6 +630,7 @@ def main():
                             scaled_criteria_df[crit] = scaled_values
 
                 scaled_criteria_df['Total Score'] = scaled_criteria_df[selected_criteria].sum(axis=1)
+
                 min_score = scaled_criteria_df['Total Score'].min()
                 max_score = scaled_criteria_df['Total Score'].max()
                 if max_score != min_score:
