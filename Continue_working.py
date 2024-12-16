@@ -7,25 +7,9 @@ import base64
 from io import BytesIO
 import openai  # For OpenAI API integration
 import importlib.metadata
-import time
-import random  # For jitter in backoff
 
 # Import specific exceptions from openai.error instead of openai
-from openai.error import (
-    InvalidRequestError, 
-    AuthenticationError, 
-    RateLimitError, 
-    OpenAIError, 
-    APIConnectionError  # Added APIConnectionError
-)
-
-# Import Tenacity for retry mechanism
-from tenacity import (
-    retry,
-    stop_after_attempt,
-    wait_random_exponential,
-    retry_if_exception_type,
-)
+from openai.error import InvalidRequestError, AuthenticationError, RateLimitError, OpenAIError
 
 # ----------------------- OpenAI Configuration -----------------------
 # Ensure you have set your OpenAI API key in Streamlit secrets as follows:
@@ -65,8 +49,6 @@ def test_openai_linkage():
         st.error(f"Authentication failed: {e}")
     except RateLimitError as e:
         st.error(f"Rate limit exceeded: {e}")
-    except APIConnectionError as e:
-        st.error(f"API connection error: {e}")
     except OpenAIError as e:
         st.error(f"OpenAI API error: {e}")
     except Exception as e:
@@ -125,22 +107,13 @@ def load_session_state(uploaded_file):
     except Exception as e:
         st.error(f"Failed to load progress: {e}")
 
-# ----------------------- OpenAI Scenario Generation with Retry -----------------------
-@retry(
-    reraise=True,
-    stop=stop_after_attempt(5),  # Maximum of 5 retries
-    wait=wait_random_exponential(min=1, max=60),  # Exponential backoff between 1 and 60 seconds
-    retry=retry_if_exception_type((RateLimitError, APIConnectionError))
-)
+# ----------------------- OpenAI Scenario Generation -----------------------
 def generate_scenarios(description, num_scenarios):
     """
     Uses OpenAI's GPT model to generate scenario suggestions based on the activities description.
-    Implements exponential backoff to handle RateLimitError and APIConnectionError.
-    
     Args:
         description (str): The activities description input by the user.
         num_scenarios (int): The number of scenarios to generate.
-    
     Returns:
         list of dict: Generated scenarios with 'name' and 'description'.
     """
@@ -368,7 +341,7 @@ def main():
         key="activities_description_input"
     )
     
-    # ----------------------- Scenario Generation -----------------------
+        # ----------------------- Scenario Generation -----------------------
     if activities_description.strip() != "":
         st.success("Activities description received. You can now define your scenarios based on this information.")
 
@@ -384,27 +357,20 @@ def main():
                 key="num_scenarios_to_generate"
             )
             with st.spinner("Generating scenarios..."):
-                try:
-                    generated_scenarios = generate_scenarios(activities_description, int(num_scenarios))
-                    if generated_scenarios:
-                        # Create a DataFrame for scenario descriptions
-                        scenario_desc_columns = ["Scenario", "Description"]
-                        scenario_desc_data = [[scenario['name'], scenario['description']] for scenario in generated_scenarios]
-                        scenario_desc_df = pd.DataFrame(scenario_desc_data, columns=scenario_desc_columns)
-                        
-                        # Update the session state with generated scenarios
-                        st.session_state.edited_scenario_desc_df = scenario_desc_df
-                        st.success("Scenarios generated successfully! You can now review and edit them as needed.")
-                    else:
-                        st.error("No scenarios were generated. Please try again or enter a more detailed description.")
-                except RateLimitError as e:
-                    st.error(f"Rate limit exceeded: {e}. Please try again later.")
-                except APIConnectionError as e:
-                    st.error(f"API connection error: {e}. Please check your network and try again.")
-                except OpenAIError as e:
-                    st.error(f"OpenAI API error: {e}")
-                except Exception as e:
-                    st.error(f"Unexpected error: {e}")
+                generated_scenarios = generate_scenarios(activities_description, int(num_scenarios))
+                if generated_scenarios:
+                    # Create a DataFrame for scenario descriptions
+                    scenario_desc_columns = ["Scenario", "Description"]
+                    scenario_desc_data = [[scenario['name'], scenario['description']] for scenario in generated_scenarios]
+                    scenario_desc_df = pd.DataFrame(scenario_desc_data, columns=scenario_desc_columns)
+                    
+                    # Update the session state with generated scenarios
+                    st.session_state.edited_scenario_desc_df = scenario_desc_df
+                    st.success("Scenarios generated successfully! You can now review and edit them as needed.")
+                else:
+                    st.error("No scenarios were generated. Please try again or enter a more detailed description.")
+    
+    
 
     # ----------------------- Scenario Planning -----------------------
 
