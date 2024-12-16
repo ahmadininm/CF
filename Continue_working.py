@@ -8,17 +8,10 @@ from io import BytesIO
 import openai  # For OpenAI API integration
 import importlib.metadata
 import time
-import random
+import random  # Added for jitter in backoff
 
 # Import specific exceptions from openai.error instead of openai
-from openai.error import (
-    InvalidRequestError,
-    AuthenticationError,
-    RateLimitError,
-    OpenAIError,
-    APIConnectionError,
-    APITimeoutError,
-)
+from openai.error import InvalidRequestError, AuthenticationError, RateLimitError, OpenAIError, APIConnectionError  # Removed APITimeoutError
 
 # ----------------------- OpenAI Configuration -----------------------
 # Ensure you have set your OpenAI API key in Streamlit secrets as follows:
@@ -58,6 +51,8 @@ def test_openai_linkage():
         st.error(f"Authentication failed: {e}")
     except RateLimitError as e:
         st.error(f"Rate limit exceeded: {e}")
+    except APIConnectionError as e:
+        st.error(f"API connection error: {e}")
     except OpenAIError as e:
         st.error(f"OpenAI API error: {e}")
     except Exception as e:
@@ -116,58 +111,20 @@ def load_session_state(uploaded_file):
     except Exception as e:
         st.error(f"Failed to load progress: {e}")
 
-# ----------------------- Exponential Backoff Decorator -----------------------
-def retry_with_exponential_backoff(max_retries=5, initial_delay=1, backoff_factor=2, jitter=True):
-    """
-    Decorator to retry a function with exponential backoff upon encountering RateLimitError or related errors.
-    """
-    def decorator(func):
-        def wrapper(*args, **kwargs):
-            retries = 0
-            delay = initial_delay
-            while retries < max_retries:
-                try:
-                    return func(*args, **kwargs)
-                except RateLimitError as e:
-                    retries += 1
-                    wait_time = delay * (backoff_factor ** (retries - 1))
-                    if jitter:
-                        wait_time += random.uniform(0, 1)
-                    st.warning(f"Rate limit exceeded. Retrying in {wait_time:.2f} seconds... (Attempt {retries}/{max_retries})")
-                    time.sleep(wait_time)
-                except APITimeoutError as e:
-                    retries += 1
-                    wait_time = delay * (backoff_factor ** (retries - 1))
-                    if jitter:
-                        wait_time += random.uniform(0, 1)
-                    st.warning(f"API timeout. Retrying in {wait_time:.2f} seconds... (Attempt {retries}/{max_retries})")
-                    time.sleep(wait_time)
-                except APIConnectionError as e:
-                    retries += 1
-                    wait_time = delay * (backoff_factor ** (retries - 1))
-                    if jitter:
-                        wait_time += random.uniform(0, 1)
-                    st.warning(f"API connection error. Retrying in {wait_time:.2f} seconds... (Attempt {retries}/{max_retries})")
-                    time.sleep(wait_time)
-                except OpenAIError as e:
-                    st.error(f"OpenAI API Error: {e}")
-                    break
-                except Exception as e:
-                    st.error(f"Unexpected error: {e}")
-                    break
-            st.error("Maximum retry attempts exceeded. Please try again later.")
-            return None
-        return wrapper
-    return decorator
-
 # ----------------------- OpenAI Scenario Generation with Retry -----------------------
-@retry_with_exponential_backoff(max_retries=5, initial_delay=1, backoff_factor=2, jitter=True)
-def generate_scenarios(description, num_scenarios):
+def generate_scenarios(description, num_scenarios, max_retries=5, initial_delay=1, backoff_factor=2, jitter=True):
     """
     Uses OpenAI's GPT model to generate scenario suggestions based on the activities description.
+    Implements exponential backoff to handle RateLimitError and APIConnectionError.
+    
     Args:
         description (str): The activities description input by the user.
         num_scenarios (int): The number of scenarios to generate.
+        max_retries (int): Maximum number of retry attempts.
+        initial_delay (int): Initial delay in seconds before retrying.
+        backoff_factor (int): Factor by which the delay increases each retry.
+        jitter (bool): Whether to add random jitter to the delay.
+    
     Returns:
         list of dict: Generated scenarios with 'name' and 'description'.
     """
@@ -179,30 +136,64 @@ def generate_scenarios(description, num_scenarios):
         f"Scenarios:"
     )
     
-    response = openai.ChatCompletion.create(
-        model="gpt-3.5-turbo",  # You can choose a different model if desired
-        messages=[
-            {"role": "system", "content": "You are an expert sustainability analyst."},
-            {"role": "user", "content": prompt}
-        ],
-        max_tokens=500,
-        temperature=0.7,
-    )
-    # Use attribute access instead of dict-style
-    scenarios_text = response.choices[0].message.content.strip()
-    # Split scenarios based on numbering
-    scenarios = []
-    for scenario in scenarios_text.split('\n'):
-        if scenario.strip() == "":
-            continue
-        # Assuming scenarios are listed as "1. Name: Description"
-        if '.' in scenario:
-            parts = scenario.split('.', 1)
-            name_desc = parts[1].strip()
-            if ':' in name_desc:
-                name, desc = name_desc.split(':', 1)
-                scenarios.append({"name": name.strip(), "description": desc.strip()})
-    return scenarios
+    retries = 0
+    delay = initial_delay
+    
+    while retries <= max_retries:
+        try:
+            response = openai.ChatCompletion.create(
+                model="gpt-3.5-turbo",  # You can choose a different model if desired
+                messages=[
+                    {"role": "system", "content": "You are an expert sustainability analyst."},
+                    {"role": "user", "content": prompt}
+                ],
+                max_tokens=500,
+                temperature=0.7,
+            )
+            # Use attribute access instead of dict-style
+            scenarios_text = response.choices[0].message.content.strip()
+            # Split scenarios based on numbering
+            scenarios = []
+            for scenario in scenarios_text.split('\n'):
+                if scenario.strip() == "":
+                    continue
+                # Assuming scenarios are listed as "1. Name: Description"
+                if '.' in scenario:
+                    parts = scenario.split('.', 1)
+                    name_desc = parts[1].strip()
+                    if ':' in name_desc:
+                        name, desc = name_desc.split(':', 1)
+                        scenarios.append({"name": name.strip(), "description": desc.strip()})
+            return scenarios
+        except RateLimitError as e:
+            retries += 1
+            if retries > max_retries:
+                st.error("Rate limit exceeded. Please try again later.")
+                return []
+            wait_time = delay * (backoff_factor ** (retries - 1))
+            if jitter:
+                wait_time += random.uniform(0, 1)
+            st.warning(f"Rate limit exceeded. Retrying in {wait_time:.2f} seconds... (Attempt {retries}/{max_retries})")
+            time.sleep(wait_time)
+        except APIConnectionError as e:
+            retries += 1
+            if retries > max_retries:
+                st.error("API connection error. Please check your network and try again later.")
+                return []
+            wait_time = delay * (backoff_factor ** (retries - 1))
+            if jitter:
+                wait_time += random.uniform(0, 1)
+            st.warning(f"API connection error. Retrying in {wait_time:.2f} seconds... (Attempt {retries}/{max_retries})")
+            time.sleep(wait_time)
+        except OpenAIError as e:
+            st.error(f"OpenAI API Error: {e}")
+            return []
+        except Exception as e:
+            st.error(f"Unexpected error: {e}")
+            return []
+    
+    st.error("Failed to generate scenarios after multiple attempts.")
+    return []
 
 # ----------------------- Main Application -----------------------
 def main():
@@ -416,7 +407,7 @@ def main():
                     st.success("Scenarios generated successfully! You can now review and edit them as needed.")
                 else:
                     st.error("No scenarios were generated. Please try again or enter a more detailed description.")
-    
+
 
     # ----------------------- Scenario Planning -----------------------
 
@@ -789,6 +780,5 @@ def main():
                 if len(top_scenario) > 0:
                     st.success(f"The top-ranked scenario is **{top_scenario[0]}** with the highest carbon savings.")
 
-# Run the application
 if __name__ == "__main__":
     main()
