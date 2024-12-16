@@ -13,13 +13,19 @@ from tenacity import retry, stop_after_attempt, wait_random_exponential
 # Import specific exceptions from openai.error instead of openai
 from openai.error import InvalidRequestError, AuthenticationError, RateLimitError, OpenAIError
 
+import logging
+
+# ----------------------- Logging Configuration -----------------------
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
 # ----------------------- OpenAI Configuration -----------------------
 # Ensure you have set your OpenAI API key in Streamlit secrets as follows:
 # [OPENAI]
 # API_KEY = "your-openai-api-key"
 
 try:
-    openai.api_key = st.secrets["OPENAI_API_KEY"]
+    openai.api_key = st.secrets["OPENAI"]["API_KEY"]
 except KeyError:
     st.error(
         "🔑 OpenAI API key not found. Please add it to `secrets.toml` under the `[OPENAI]` section or set it in Streamlit Cloud secrets."
@@ -38,8 +44,10 @@ def get_openai_version_importlib():
 # ----------------------- Test OpenAI Linkage -----------------------
 @retry(
     wait=wait_random_exponential(min=1, max=60),
-    stop=stop_after_attempt(1),
-    retry=tenacity.retry_if_exception_type(RateLimitError)
+    stop=stop_after_attempt(3),  # Increased retry attempts
+    retry=tenacity.retry_if_exception_type(RateLimitError),
+    before=tenacity.before_log(logger, logging.INFO),
+    after=tenacity.after_log(logger, logging.WARN)
 )
 def call_openai_api_with_backoff(func, **kwargs):
     return func(**kwargs)
