@@ -19,7 +19,13 @@ from openai.error import InvalidRequestError, AuthenticationError, RateLimitErro
 # [OPENAI]
 # API_KEY = "your-openai-api-key"
 
-openai.api_key = st.secrets["OPENAI"]["API_KEY"]
+try:
+    openai.api_key = st.secrets["OPENAI"]["API_KEY"]
+except KeyError:
+    st.error(
+        "OpenAI API key not found in secrets. Please add it to `secrets.toml` under the `[OPENAI]` section."
+    )
+    st.stop()
 
 # ----------------------- Logging Configuration -----------------------
 logging.basicConfig(
@@ -430,6 +436,7 @@ def main():
     try:
         edited_scenario_desc_df = st.data_editor(scenario_desc_df, use_container_width=True, key="scenario_desc_editor")
     except AttributeError:
+        # For older Streamlit versions
         edited_scenario_desc_df = st.experimental_data_editor(scenario_desc_df, use_container_width=True, key="scenario_desc_editor")
 
     # Save edited scenario descriptions to session state
@@ -451,6 +458,7 @@ def main():
     try:
         edited_scenario_df = st.data_editor(scenario_df, use_container_width=True, key="scenario_percent_editor")
     except AttributeError:
+        # For older Streamlit versions
         edited_scenario_df = st.experimental_data_editor(scenario_df, use_container_width=True, key="scenario_percent_editor")
 
     # Convert columns (except Item) to numeric
@@ -570,7 +578,7 @@ def main():
                 if other_crit_name.strip() != "":
                     # Add the new "Other" criteria to the criteria_options
                     criteria_options[other_crit_name.strip()] = other_crit_desc.strip() if other_crit_desc.strip() != "" else "No description provided."
-    
+
     # Show descriptions for selected criteria (with HTML enabled)
     for crit in selected_criteria:
         st.markdown(f"**{crit}:** {criteria_options[crit]}", unsafe_allow_html=True)
@@ -774,6 +782,5 @@ def main():
                 if len(top_scenario) > 0:
                     st.success(f"The top-ranked scenario is **{top_scenario[0]}** with the highest carbon savings.")
 
-# Execute the main function
 if __name__ == "__main__":
     main()
