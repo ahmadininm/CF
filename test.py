@@ -19,7 +19,7 @@ from openai.error import InvalidRequestError, AuthenticationError, RateLimitErro
 # API_KEY = "your-openai-api-key"
 
 try:
-    openai.api_key = st.secrets["OPENAI"]["API_KEY"]
+    openai.api_key = st.secrets["OPENAI_API_KEY"]
 except KeyError:
     st.error(
         "🔑 OpenAI API key not found. Please add it to `secrets.toml` under the `[OPENAI]` section or set it in Streamlit Cloud secrets."
