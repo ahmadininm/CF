@@ -7,6 +7,7 @@ import base64
 from io import BytesIO
 import openai  # For OpenAI API integration
 import importlib.metadata
+import tenacity
 
 # Import specific exceptions from openai.error instead of openai
 from openai.error import InvalidRequestError, AuthenticationError, RateLimitError, OpenAIError
@@ -19,6 +20,8 @@ from openai.error import InvalidRequestError, AuthenticationError, RateLimitErro
 openai.api_key = st.secrets["OPENAI_API_KEY"]
 
 # ----------------------- Helper Functions -----------------------
+from tenacity import retry, stop_after_attempt, wait_random_exponential
+
 def get_openai_version_importlib():
     try:
         version = importlib.metadata.version('openai')
@@ -29,10 +32,14 @@ def get_openai_version_importlib():
 # Removed pkg_resources related functions
 
 # ----------------------- Test OpenAI Linkage -----------------------
+@retry(wait=wait_random_exponential(min=1, max=60), stop=stop_after_attempt(6), retry=retry_if_exception_type(RateLimitError))
+def call_openai_api_with_backoff(func, **kwargs):
+    return func(**kwargs)
+
 def test_openai_linkage():
     try:
-        # Attempt a simple API call to test linkage
-        response = openai.ChatCompletion.create(
+        response = call_openai_api_with_backoff(
+            openai.ChatCompletion.create,
             model="gpt-3.5-turbo",
             messages=[
                 {"role": "system", "content": "You are a helpful assistant."},
@@ -109,14 +116,6 @@ def load_session_state(uploaded_file):
 
 # ----------------------- OpenAI Scenario Generation -----------------------
 def generate_scenarios(description, num_scenarios):
-    """
-    Uses OpenAI's GPT model to generate scenario suggestions based on the activities description.
-    Args:
-        description (str): The activities description input by the user.
-        num_scenarios (int): The number of scenarios to generate.
-    Returns:
-        list of dict: Generated scenarios with 'name' and 'description'.
-    """
     prompt = (
         f"Based on the following description of an organization's activities and sustainability goals, "
         f"generate {num_scenarios} detailed sustainability scenarios. "
@@ -126,8 +125,9 @@ def generate_scenarios(description, num_scenarios):
     )
     
     try:
-        response = openai.ChatCompletion.create(
-            model="gpt-3.5-turbo",  # You can choose a different model if desired
+        response = call_openai_api_with_backoff(
+            openai.ChatCompletion.create,
+            model="gpt-3.5-turbo",
             messages=[
                 {"role": "system", "content": "You are an expert sustainability analyst."},
                 {"role": "user", "content": prompt}
@@ -135,14 +135,11 @@ def generate_scenarios(description, num_scenarios):
             max_tokens=500,
             temperature=0.7,
         )
-        # Use attribute access instead of dict-style
         scenarios_text = response.choices[0].message.content.strip()
-        # Split scenarios based on numbering
         scenarios = []
         for scenario in scenarios_text.split('\n'):
             if scenario.strip() == "":
                 continue
-            # Assuming scenarios are listed as "1. Name: Description"
             if '.' in scenario:
                 parts = scenario.split('.', 1)
                 name_desc = parts[1].strip()
