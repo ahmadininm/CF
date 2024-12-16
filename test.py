@@ -32,7 +32,7 @@ def get_openai_version_importlib():
 # Removed pkg_resources related functions
 
 # ----------------------- Test OpenAI Linkage -----------------------
-@retry(wait=wait_random_exponential(min=1, max=60), stop=stop_after_attempt(6), retry=retry_if_exception_type(RateLimitError))
+@retry(wait=wait_random_exponential(min=1, max=120), stop=stop_after_attempt(6), retry=retry_if_exception_type(RateLimitError))
 def call_openai_api_with_backoff(func, **kwargs):
     return func(**kwargs)
 
