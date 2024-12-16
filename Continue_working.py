@@ -254,21 +254,13 @@ def main():
         )
     
     # Option to add custom items
+
     st.subheader("Add Custom Items (Optional)")
     st.write("If there are any additional sources of emissions not accounted for above, you can add them here.")
-    if st.checkbox("Add custom items?", key="add_custom_items_checkbox"):
-        num_custom_items = st.number_input(
-            "How many custom items would you like to add?",
-            min_value=1,
-            step=1,
-            value=1,
-            key="num_custom_items_input"
-        )
-        for i in range(int(num_custom_items)):
-            item_name = st.text_input(
-                f"Custom Item {i + 1} Name:",
-                key=f"custom_item_name_{i}"
-            )
+    if st.checkbox("Add custom items?"):
+        num_custom_items = st.number_input("How many custom items would you like to add?", min_value=1, step=1, value=1)
+        for i in range(num_custom_items):
+            item_name = st.text_input(f"Custom Item {i + 1} Name:", key=f"custom_item_name_{i}")
             emission_factor = st.number_input(
                 f"Custom Item {i + 1} Emission Factor (kg CO₂e/unit):", 
                 min_value=0.0000001, 
@@ -283,16 +275,10 @@ def main():
                 value=0.0,
                 key=f"custom_usage_{i}"
             )
-            # Add to BAU Data if item name is provided and not duplicate
-            if item_name.strip() != "":
-                if item_name.strip() not in bau_data["Item"].values:
-                    new_row = pd.DataFrame({"Item": [item_name.strip()], "Daily Usage (Units)": [usage]})
-                    st.session_state.bau_data = pd.concat([bau_data, new_row], ignore_index=True)
-                    st.session_state.emission_factors[item_name.strip()] = emission_factor
-                    # Update 'bau_data' variable to include new row
-                    bau_data = st.session_state.bau_data
-                else:
-                    st.warning(f"Item '{item_name.strip()}' already exists.")
+            # Add to BAU Data
+            new_row = pd.DataFrame({"Item": [item_name], "Daily Usage (Units)": [usage]})
+            bau_data = pd.concat([bau_data, new_row], ignore_index=True)
+            emission_factors[item_name] = emission_factor
 
     # Fill missing emission factors in the DataFrame
     bau_data = st.session_state.bau_data.copy()
