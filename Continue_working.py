@@ -8,10 +8,24 @@ from io import BytesIO
 import openai  # For OpenAI API integration
 import importlib.metadata
 import time
-import random  # Added for jitter in backoff
+import random  # For jitter in backoff
 
 # Import specific exceptions from openai.error instead of openai
-from openai.error import InvalidRequestError, AuthenticationError, RateLimitError, OpenAIError, APIConnectionError  # Added APIConnectionError
+from openai.error import (
+    InvalidRequestError, 
+    AuthenticationError, 
+    RateLimitError, 
+    OpenAIError, 
+    APIConnectionError  # Added APIConnectionError
+)
+
+# Import Tenacity for retry mechanism
+from tenacity import (
+    retry,
+    stop_after_attempt,
+    wait_random_exponential,
+    retry_if_exception_type,
+)
 
 # ----------------------- OpenAI Configuration -----------------------
 # Ensure you have set your OpenAI API key in Streamlit secrets as follows:
@@ -112,7 +126,13 @@ def load_session_state(uploaded_file):
         st.error(f"Failed to load progress: {e}")
 
 # ----------------------- OpenAI Scenario Generation with Retry -----------------------
-def generate_scenarios(description, num_scenarios, max_retries=5, initial_delay=1, backoff_factor=2, jitter=True):
+@retry(
+    reraise=True,
+    stop=stop_after_attempt(5),  # Maximum of 5 retries
+    wait=wait_random_exponential(min=1, max=60),  # Exponential backoff between 1 and 60 seconds
+    retry=retry_if_exception_type((RateLimitError, APIConnectionError))
+)
+def generate_scenarios(description, num_scenarios):
     """
     Uses OpenAI's GPT model to generate scenario suggestions based on the activities description.
     Implements exponential backoff to handle RateLimitError and APIConnectionError.
@@ -120,10 +140,6 @@ def generate_scenarios(description, num_scenarios, max_retries=5, initial_delay=
     Args:
         description (str): The activities description input by the user.
         num_scenarios (int): The number of scenarios to generate.
-        max_retries (int): Maximum number of retry attempts.
-        initial_delay (int): Initial delay in seconds before retrying.
-        backoff_factor (int): Factor by which the delay increases each retry.
-        jitter (bool): Whether to add random jitter to the delay.
     
     Returns:
         list of dict: Generated scenarios with 'name' and 'description'.
@@ -136,54 +152,37 @@ def generate_scenarios(description, num_scenarios, max_retries=5, initial_delay=
         f"Scenarios:"
     )
     
-    retries = 0
-    delay = initial_delay
-    
-    while retries < max_retries:
-        try:
-            response = openai.ChatCompletion.create(
-                model="gpt-3.5-turbo",  # You can choose a different model if desired
-                messages=[
-                    {"role": "system", "content": "You are an expert sustainability analyst."},
-                    {"role": "user", "content": prompt}
-                ],
-                max_tokens=500,
-                temperature=0.7,
-            )
-            # Use attribute access instead of dict-style
-            scenarios_text = response.choices[0].message.content.strip()
-            # Split scenarios based on numbering
-            scenarios = []
-            for scenario in scenarios_text.split('\n'):
-                if scenario.strip() == "":
-                    continue
-                # Assuming scenarios are listed as "1. Name: Description"
-                if '.' in scenario:
-                    parts = scenario.split('.', 1)
-                    name_desc = parts[1].strip()
-                    if ':' in name_desc:
-                        name, desc = name_desc.split(':', 1)
-                        scenarios.append({"name": name.strip(), "description": desc.strip()})
-            return scenarios
-        except (RateLimitError, APIConnectionError) as e:
-            retries += 1
-            if retries > max_retries:
-                st.error(f"Rate limit exceeded or API connection error. Please try again later.")
-                return []
-            wait_time = delay * (backoff_factor ** (retries - 1))
-            if jitter:
-                wait_time += random.uniform(0, 1)
-            st.warning(f"Encountered {type(e).__name__}: {e}. Retrying in {wait_time:.2f} seconds... (Attempt {retries}/{max_retries})")
-            time.sleep(wait_time)
-        except OpenAIError as e:
-            st.error(f"OpenAI API Error: {e}")
-            return []
-        except Exception as e:
-            st.error(f"Unexpected error: {e}")
-            return []
-    
-    st.error("Failed to generate scenarios after multiple attempts.")
-    return []
+    try:
+        response = openai.ChatCompletion.create(
+            model="gpt-3.5-turbo",  # You can choose a different model if desired
+            messages=[
+                {"role": "system", "content": "You are an expert sustainability analyst."},
+                {"role": "user", "content": prompt}
+            ],
+            max_tokens=500,
+            temperature=0.7,
+        )
+        # Use attribute access instead of dict-style
+        scenarios_text = response.choices[0].message.content.strip()
+        # Split scenarios based on numbering
+        scenarios = []
+        for scenario in scenarios_text.split('\n'):
+            if scenario.strip() == "":
+                continue
+            # Assuming scenarios are listed as "1. Name: Description"
+            if '.' in scenario:
+                parts = scenario.split('.', 1)
+                name_desc = parts[1].strip()
+                if ':' in name_desc:
+                    name, desc = name_desc.split(':', 1)
+                    scenarios.append({"name": name.strip(), "description": desc.strip()})
+        return scenarios
+    except OpenAIError as e:
+        st.error(f"OpenAI API Error: {e}")
+        return []
+    except Exception as e:
+        st.error(f"Unexpected error: {e}")
+        return []
 
 # ----------------------- Main Application -----------------------
 def main():
@@ -385,19 +384,27 @@ def main():
                 key="num_scenarios_to_generate"
             )
             with st.spinner("Generating scenarios..."):
-                generated_scenarios = generate_scenarios(activities_description, int(num_scenarios))
-                if generated_scenarios:
-                    # Create a DataFrame for scenario descriptions
-                    scenario_desc_columns = ["Scenario", "Description"]
-                    scenario_desc_data = [[scenario['name'], scenario['description']] for scenario in generated_scenarios]
-                    scenario_desc_df = pd.DataFrame(scenario_desc_data, columns=scenario_desc_columns)
-                    
-                    # Update the session state with generated scenarios
-                    st.session_state.edited_scenario_desc_df = scenario_desc_df
-                    st.success("Scenarios generated successfully! You can now review and edit them as needed.")
-                else:
-                    st.error("No scenarios were generated. Please try again or enter a more detailed description.")
-    
+                try:
+                    generated_scenarios = generate_scenarios(activities_description, int(num_scenarios))
+                    if generated_scenarios:
+                        # Create a DataFrame for scenario descriptions
+                        scenario_desc_columns = ["Scenario", "Description"]
+                        scenario_desc_data = [[scenario['name'], scenario['description']] for scenario in generated_scenarios]
+                        scenario_desc_df = pd.DataFrame(scenario_desc_data, columns=scenario_desc_columns)
+                        
+                        # Update the session state with generated scenarios
+                        st.session_state.edited_scenario_desc_df = scenario_desc_df
+                        st.success("Scenarios generated successfully! You can now review and edit them as needed.")
+                    else:
+                        st.error("No scenarios were generated. Please try again or enter a more detailed description.")
+                except RateLimitError as e:
+                    st.error(f"Rate limit exceeded: {e}. Please try again later.")
+                except APIConnectionError as e:
+                    st.error(f"API connection error: {e}. Please check your network and try again.")
+                except OpenAIError as e:
+                    st.error(f"OpenAI API error: {e}")
+                except Exception as e:
+                    st.error(f"Unexpected error: {e}")
 
     # ----------------------- Scenario Planning -----------------------
 
