@@ -274,7 +274,7 @@ def main():
     st.write("If there are any additional sources of emissions not accounted for above, you can add them here.")
     if st.checkbox("Add custom items?"):
         num_custom_items = st.number_input("How many custom items would you like to add?", min_value=1, step=1, value=1)
-        for i in range(num_custom_items):
+        for i in range(int(num_custom_items)):
             item_name = st.text_input(f"Custom Item {i + 1} Name:", key=f"custom_item_name_{i}")
             emission_factor = st.number_input(
                 f"Custom Item {i + 1} Emission Factor (kg CO₂e/unit):", 
@@ -367,7 +367,7 @@ def main():
                     scenario_desc_data = [[scenario['name'], scenario['description']] for scenario in generated_scenarios]
                     new_scenario_desc_df = pd.DataFrame(scenario_desc_data, columns=scenario_desc_columns)
                     
-                    # Append the new scenarios to the existing ones in session state
+                    # Append the new scenarios to the existing ones in session state using pd.concat()
                     if not st.session_state.edited_scenario_desc_df.empty:
                         st.session_state.edited_scenario_desc_df = pd.concat(
                             [st.session_state.edited_scenario_desc_df, new_scenario_desc_df],
@@ -424,13 +424,21 @@ def main():
     except AttributeError:
         edited_scenario_desc_df_manual = st.experimental_data_editor(scenario_desc_df_manual, use_container_width=True, key="scenario_desc_editor_manual")
 
-    # Append manual scenarios to the session state with unique names
+    # Append manual scenarios to the session state with unique names using pd.concat()
     if not edited_scenario_desc_df_manual.empty:
+        # Create a DataFrame with unique names
+        new_manual_scenarios = []
+        existing_names = st.session_state.edited_scenario_desc_df['Scenario'].tolist()
         for index, row in edited_scenario_desc_df_manual.iterrows():
             base_name = row["Scenario"]
-            unique_name = get_unique_scenario_name(base_name, st.session_state.edited_scenario_desc_df['Scenario'].tolist())
-            st.session_state.edited_scenario_desc_df = st.session_state.edited_scenario_desc_df.append(
-                {"Scenario": unique_name, "Description": row["Description"]},
+            unique_name = get_unique_scenario_name(base_name, existing_names)
+            new_manual_scenarios.append({"Scenario": unique_name, "Description": row["Description"]})
+            existing_names.append(unique_name)
+        
+        if new_manual_scenarios:
+            new_manual_scenarios_df = pd.DataFrame(new_manual_scenarios)
+            st.session_state.edited_scenario_desc_df = pd.concat(
+                [st.session_state.edited_scenario_desc_df, new_manual_scenarios_df],
                 ignore_index=True
             )
 
