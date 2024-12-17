@@ -26,7 +26,17 @@ def get_openai_version_importlib():
     except importlib.metadata.PackageNotFoundError:
         return "Package not found."
 
-# Removed pkg_resources related functions
+# Helper function to ensure unique scenario names
+def get_unique_scenario_name(base_name, existing_names):
+    if base_name not in existing_names:
+        return base_name
+    else:
+        i = 1
+        new_name = f"{base_name} {i}"
+        while new_name in existing_names:
+            i += 1
+            new_name = f"{base_name} {i}"
+        return new_name
 
 # ----------------------- Test OpenAI Linkage -----------------------
 def test_openai_linkage():
@@ -142,6 +152,7 @@ def generate_scenarios(description, num_scenarios, bau_summary):
         scenarios_text = response.choices[0].message.content.strip()
         # Split scenarios based on numbering
         scenarios = []
+        existing_names = st.session_state.edited_scenario_desc_df['Scenario'].tolist()
         for scenario in scenarios_text.split('\n'):
             if scenario.strip() == "":
                 continue
@@ -151,7 +162,9 @@ def generate_scenarios(description, num_scenarios, bau_summary):
                 name_desc = parts[1].strip()
                 if ':' in name_desc:
                     name, desc = name_desc.split(':', 1)
-                    scenarios.append({"name": name.strip(), "description": desc.strip()})
+                    unique_name = get_unique_scenario_name(name.strip(), existing_names)
+                    scenarios.append({"name": unique_name, "description": desc.strip()})
+                    existing_names.append(unique_name)
         return scenarios
     except OpenAIError as e:
         st.error(f"OpenAI API Error: {e}")
@@ -277,10 +290,11 @@ def main():
                 value=0.0,
                 key=f"custom_usage_{i}"
             )
-            # Add to BAU Data
-            new_row = pd.DataFrame({"Item": [item_name], "Daily Usage (Units)": [usage]})
-            bau_data = pd.concat([bau_data, new_row], ignore_index=True)
-            emission_factors[item_name] = emission_factor
+            if item_name.strip() != "":
+                # Add to BAU Data
+                new_row = pd.DataFrame({"Item": [item_name], "Daily Usage (Units)": [usage]})
+                bau_data = pd.concat([bau_data, new_row], ignore_index=True)
+                emission_factors[item_name] = emission_factor
 
     # Fill missing emission factors in the DataFrame
     bau_data["Emission Factor (kg CO₂e/unit)"] = bau_data["Item"].map(emission_factors).fillna(0)
@@ -399,12 +413,15 @@ def main():
     except AttributeError:
         edited_scenario_desc_df_manual = st.experimental_data_editor(scenario_desc_df_manual, use_container_width=True, key="scenario_desc_editor_manual")
 
-    # Append manual scenarios to the session state
+    # Append manual scenarios to the session state with unique names
     if not edited_scenario_desc_df_manual.empty:
-        st.session_state.edited_scenario_desc_df = pd.concat(
-            [st.session_state.edited_scenario_desc_df, edited_scenario_desc_df_manual],
-            ignore_index=True
-        )
+        for index, row in edited_scenario_desc_df_manual.iterrows():
+            base_name = row["Scenario"]
+            unique_name = get_unique_scenario_name(base_name, st.session_state.edited_scenario_desc_df['Scenario'].tolist())
+            st.session_state.edited_scenario_desc_df = st.session_state.edited_scenario_desc_df.append(
+                {"Scenario": unique_name, "Description": row["Description"]},
+                ignore_index=True
+            )
 
     # Create a DataFrame with one column per scenario
     scenario_columns = ["Item"] + [f"{row['Scenario']} (%)" for index, row in st.session_state.edited_scenario_desc_df.iterrows()]
