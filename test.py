@@ -379,7 +379,18 @@ def main():
                     st.success("5 Scenarios generated successfully! You can now review and edit them as needed.")
                 else:
                     st.error("No scenarios were generated. Please try again or enter a more detailed description.")
-    
+
+    # ----------------------- Display Generated Scenarios -----------------------
+    st.subheader("Generated Scenarios")
+    st.write("Below are the scenarios generated based on your description and BAU data. You can review and edit them as needed.")
+
+    if not st.session_state.edited_scenario_desc_df.empty:
+        try:
+            st.dataframe(st.session_state.edited_scenario_desc_df, use_container_width=True)
+        except Exception as e:
+            st.error(f"Error displaying scenarios: {e}")
+    else:
+        st.info("No scenarios generated yet. Please generate scenarios using the button above.")
 
     # ----------------------- Scenario Planning -----------------------
 
@@ -422,6 +433,18 @@ def main():
                 {"Scenario": unique_name, "Description": row["Description"]},
                 ignore_index=True
             )
+
+    # Display all scenarios (both generated and manually added)
+    st.subheader("All Scenarios")
+    st.write("Here are all your current scenarios with their descriptions.")
+
+    if not st.session_state.edited_scenario_desc_df.empty:
+        try:
+            st.dataframe(st.session_state.edited_scenario_desc_df, use_container_width=True)
+        except Exception as e:
+            st.error(f"Error displaying scenarios: {e}")
+    else:
+        st.info("No scenarios available.")
 
     # Create a DataFrame with one column per scenario
     scenario_columns = ["Item"] + [f"{row['Scenario']} (%)" for index, row in st.session_state.edited_scenario_desc_df.iterrows()]
