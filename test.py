@@ -75,6 +75,7 @@ def save_session_state():
         'bau_data': st.session_state.get('bau_data').to_json(),
         'emission_factors': st.session_state.get('emission_factors'),
         'scenario_desc_df': st.session_state.get('scenario_desc_df').to_json(),
+        'suggested_scenarios_df': st.session_state.get('suggested_scenarios_df').to_json(),
         'selected_criteria': st.session_state.get('selected_criteria'),
         'edited_criteria_df': st.session_state.get('edited_criteria_df').to_json() if 'edited_criteria_df' in st.session_state else None
     }
@@ -101,6 +102,10 @@ def load_session_state(uploaded_file):
         # Load Scenario Descriptions
         scenario_desc_loaded = pd.read_json(data['scenario_desc_df'])
         st.session_state.scenario_desc_df = scenario_desc_loaded
+        
+        # Load Suggested Scenarios
+        suggested_scenarios_loaded = pd.read_json(data['suggested_scenarios_df'])
+        st.session_state.suggested_scenarios_df = suggested_scenarios_loaded
         
         # Load Selected Criteria
         st.session_state.selected_criteria = data['selected_criteria']
@@ -207,7 +212,7 @@ def main():
         load_session_state(uploaded_file)
 
     # ----------------------- Initialize Session State -----------------------
-
+    
     if 'bau_data' not in st.session_state:
         default_items = [
             "Gas (kWh/day)", 
@@ -250,7 +255,7 @@ def main():
         st.session_state.edited_criteria_df = pd.DataFrame()
 
     # ----------------------- BAU Inputs -----------------------
-
+    
     st.subheader("Enter Daily Usage for Business As Usual (BAU)")
 
     # Display BAU Inputs
@@ -296,14 +301,14 @@ def main():
     # Fill missing emission factors in the DataFrame
     bau_data = st.session_state.bau_data  # Update bau_data after possible additions
     emission_factors = st.session_state.emission_factors  # Update emission_factors after possible additions
-    bau_data["Emission Factor (kg CO₂e/unit)"] = bau_data["Item"].map(emission_factors).fillna(0)
-
+    bau_data["Emission Factor (kg CO₂e/unit)"] = bau_data["Item"].map(emission_factors).fillna(0).astype(float)  # Fixed line
+    
     # Calculate emissions for BAU
     bau_data["Daily Emissions (kg CO₂e)"] = bau_data["Daily Usage (Units)"] * bau_data["Emission Factor (kg CO₂e/unit)"]
     bau_data["Annual Emissions (kg CO₂e)"] = bau_data["Daily Emissions (kg CO₂e)"] * 365
 
      # ----------------------- Ensure BAU Graph Maintains Input Order -----------------------
-
+    
     # Reorder bau_data to ensure default items come first, followed by custom items
     default_items = [
         "Gas (kWh/day)", 
@@ -334,7 +339,7 @@ def main():
     st.bar_chart(bau_data_ordered.set_index("Item")["Daily Emissions (kg CO₂e)"], use_container_width=True)
 
     # ----------------------- Describe Activities to Propose Scenarios -----------------------
-
+    
     st.subheader("Describe Your Organization's Activities")
     st.write("Provide a brief description of your organization's key activities and sustainability goals to help propose relevant scenarios.")
 
@@ -346,21 +351,15 @@ def main():
     
     # ----------------------- Scenario Generation -----------------------
     if activities_description.strip() != "":
-        st.success("Activities description received. You can now define your scenarios based on this information.")
+        st.success("Activities description received. You can now generate scenario suggestions based on this information.")
 
         st.subheader("Generate Scenario Suggestions")
         st.write("Click the button below to generate scenario suggestions based on your activities description.")
 
-        if st.button("Generate Scenarios"):
-            num_scenarios = st.number_input(
-                "How many scenarios would you like to generate?",
-                min_value=1,
-                step=1,
-                value=5,
-                key="num_scenarios_to_generate"
-            )
+        if st.button("Generate 5 Scenarios"):
+            num_scenarios = 5  # Fixed number of scenarios
             with st.spinner("Generating scenarios..."):
-                generated_scenarios = generate_scenarios(activities_description, int(num_scenarios))
+                generated_scenarios = generate_scenarios(activities_description, num_scenarios)
                 if generated_scenarios:
                     # Create a DataFrame for scenario descriptions
                     scenario_desc_columns = ["Scenario", "Description"]
@@ -372,7 +371,7 @@ def main():
                         [st.session_state.suggested_scenarios_df, scenario_desc_df],
                         ignore_index=True
                     )
-                    st.success("Scenarios generated successfully! You can now review and use them as needed.")
+                    st.success("5 scenarios generated successfully! You can now review and use them as needed.")
                 else:
                     st.error("No scenarios were generated. Please try again or enter a more detailed description.")
 
@@ -386,7 +385,7 @@ def main():
         except Exception as e:
             st.error(f"Error displaying suggested scenarios: {e}")
     else:
-        st.info("No suggested scenarios generated yet. Click the 'Generate Scenarios' button above.")
+        st.info("No suggested scenarios generated yet. Click the 'Generate 5 Scenarios' button above.")
 
     # ----------------------- Scenario Planning -----------------------
 
@@ -508,7 +507,7 @@ def main():
         )
 
     # ----------------------- Additional Criteria -----------------------
-
+    
     st.write("Apart from the environmental impact (e.g., CO₂ saved) calculated above, which of the following criteria are also important to your organisation? Please select all that apply and then assign values for each scenario.")
 
     # Define scale-based criteria globally, including 'Other - Negative Trend'
@@ -586,7 +585,7 @@ def main():
         st.markdown(f"**{crit}:** {criteria_options[crit]}", unsafe_allow_html=True)
 
     # ----------------------- Assign Criteria Values -----------------------
-
+    
     if selected_criteria:
         st.write("### Assign Criteria Values to Each Scenario")
         st.write("Double-click a cell to edit. For (1-10) criteria, only enter values between 1 and 10.")
@@ -656,7 +655,7 @@ def main():
         st.session_state['edited_criteria_df'] = edited_criteria_df
 
     # ----------------------- Run Model -----------------------
-
+    
     # Only proceed if criteria were selected and edited_criteria_df is defined
     if selected_criteria and 'edited_criteria_df' in st.session_state and not st.session_state.edited_criteria_df.empty:
         if st.button("Run Model"):
@@ -758,7 +757,7 @@ def main():
                 st.altair_chart(chart, use_container_width=True)
 
                 # ----------------------- Enhanced Visualization -----------------------
-
+    
                 # Create a styled dataframe with ranking and color-coded cells
                 styled_display = scaled_criteria_df[['Scenario', 'Normalized Score', 'Rank']].copy()
                 styled_display = styled_display.sort_values('Rank')
@@ -779,7 +778,7 @@ def main():
                 st.dataframe(styled_display_style)
 
                 # ----------------------- Highlight Top Scenario -----------------------
-
+    
                 top_scenario = scaled_criteria_df.loc[scaled_criteria_df['Rank'] == 1, 'Scenario'].values
                 if len(top_scenario) > 0:
                     st.success(f"The top-ranked scenario is **{top_scenario[0]}** with the highest carbon savings.")
