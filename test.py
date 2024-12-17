@@ -108,20 +108,23 @@ def load_session_state(uploaded_file):
         st.error(f"Failed to load progress: {e}")
 
 # ----------------------- OpenAI Scenario Generation -----------------------
-def generate_scenarios(description, num_scenarios):
+def generate_scenarios(description, num_scenarios, bau_summary):
     """
-    Uses OpenAI's GPT model to generate scenario suggestions based on the activities description.
+    Uses OpenAI's GPT model to generate scenario suggestions based on the activities description
+    and BAU data.
     Args:
         description (str): The activities description input by the user.
         num_scenarios (int): The number of scenarios to generate.
+        bau_summary (str): Summary of BAU data to include in the prompt.
     Returns:
         list of dict: Generated scenarios with 'name' and 'description'.
     """
     prompt = (
-        f"Based on the following description of an organization's activities and sustainability goals, "
+        f"Based on the following description of an organization's activities and sustainability goals, and the provided Business As Usual (BAU) data, "
         f"generate {num_scenarios} detailed sustainability scenarios. "
         f"Each scenario should include a name and a brief description.\n\n"
         f"Description:\n{description}\n\n"
+        f"{bau_summary}\n\n"
         f"Scenarios:"
     )
     
@@ -221,8 +224,8 @@ def main():
         })
         st.session_state.emission_factors = emission_factors.copy()
     
-    if 'scenario_desc_df' not in st.session_state:
-        st.session_state.scenario_desc_df = pd.DataFrame(columns=["Scenario", "Description"])
+    if 'edited_scenario_desc_df' not in st.session_state:
+        st.session_state.edited_scenario_desc_df = pd.DataFrame(columns=["Scenario", "Description"])
     
     if 'criteria_df' not in st.session_state:
         st.session_state.criteria_df = pd.DataFrame(columns=["Scenario"])
@@ -327,31 +330,39 @@ def main():
     
         # ----------------------- Scenario Generation -----------------------
     if activities_description.strip() != "":
-        st.success("Activities description received. You can now define your scenarios based on this information.")
+        st.success("Activities description received. You can now generate scenario suggestions based on this information.")
 
         st.subheader("Generate Scenario Suggestions")
-        st.write("Click the button below to generate scenario suggestions based on your activities description.")
+        st.write("Click the button below to generate scenario suggestions based on your activities description and BAU data.")
 
-        if st.button("Generate Scenarios"):
-            num_scenarios = 5  # Fixed number of scenarios to generate per click
+        if st.button("Suggest 5 Scenarios"):
+            num_scenarios = 5  # Fixed number of scenarios per click
+            # Create a summary of BAU data to include in the prompt
+            bau_summary = "Business As Usual (BAU) Data:\n"
+            bau_summary += "Items and Daily Usage:\n"
+            for _, row in bau_data_ordered.iterrows():
+                bau_summary += f"- {row['Item']}: {row['Daily Usage (Units)']} units/day\n"
+            bau_summary += f"\nTotal Daily Emissions: {total_daily_bau:.2f} kg CO₂e/day"
+            bau_summary += f"\nTotal Annual Emissions: {total_annual_bau:.2f} kg CO₂e/year"
+
             with st.spinner("Generating scenarios..."):
-                generated_scenarios = generate_scenarios(activities_description, num_scenarios)
+                generated_scenarios = generate_scenarios(activities_description, num_scenarios, bau_summary)
                 if generated_scenarios:
                     # Create a DataFrame for scenario descriptions
                     scenario_desc_columns = ["Scenario", "Description"]
                     scenario_desc_data = [[scenario['name'], scenario['description']] for scenario in generated_scenarios]
                     new_scenario_desc_df = pd.DataFrame(scenario_desc_data, columns=scenario_desc_columns)
                     
-                    # Append to existing session state if it exists, else create new
-                    if 'edited_scenario_desc_df' in st.session_state and not st.session_state.edited_scenario_desc_df.empty:
+                    # Append the new scenarios to the existing ones in session state
+                    if not st.session_state.edited_scenario_desc_df.empty:
                         st.session_state.edited_scenario_desc_df = pd.concat(
                             [st.session_state.edited_scenario_desc_df, new_scenario_desc_df],
                             ignore_index=True
                         )
                     else:
                         st.session_state.edited_scenario_desc_df = new_scenario_desc_df
-                    
-                    st.success(f"Added {num_scenarios} scenarios successfully! You can now review and edit them as needed.")
+
+                    st.success("5 Scenarios generated successfully! You can now review and edit them as needed.")
                 else:
                     st.error("No scenarios were generated. Please try again or enter a more detailed description.")
     
@@ -367,8 +378,8 @@ def main():
         st.info("Please describe your organization's activities to proceed with scenario planning.")
 
     # Number of scenarios input
-    num_scenarios = st.number_input(
-        "How many scenarios do you want to add?",
+    num_scenarios_input = st.number_input(
+        "How many scenarios do you want to add manually?",
         min_value=1,
         step=1,
         value=1,
@@ -377,23 +388,27 @@ def main():
 
     # Create a DataFrame for scenario descriptions
     scenario_desc_columns = ["Scenario", "Description"]
-    scenario_desc_data = [[f"Scenario {i+1}", ""] for i in range(int(num_scenarios))]
-    scenario_desc_df = pd.DataFrame(scenario_desc_data, columns=scenario_desc_columns)
+    scenario_desc_data = [[f"Scenario {i+1}", ""] for i in range(int(num_scenarios_input))]
+    scenario_desc_df_manual = pd.DataFrame(scenario_desc_data, columns=scenario_desc_columns)
 
     st.write("Please describe each scenario. Double-click a cell to edit the description.")
 
     # Editable table for scenario descriptions
     try:
-        edited_scenario_desc_df = st.data_editor(scenario_desc_df, use_container_width=True, key="scenario_desc_editor")
+        edited_scenario_desc_df_manual = st.data_editor(scenario_desc_df_manual, use_container_width=True, key="scenario_desc_editor_manual")
     except AttributeError:
-        edited_scenario_desc_df = st.experimental_data_editor(scenario_desc_df, use_container_width=True, key="scenario_desc_editor")
+        edited_scenario_desc_df_manual = st.experimental_data_editor(scenario_desc_df_manual, use_container_width=True, key="scenario_desc_editor_manual")
 
-    # Save edited scenario descriptions to session state
-    st.session_state['edited_scenario_desc_df'] = edited_scenario_desc_df
+    # Append manual scenarios to the session state
+    if not edited_scenario_desc_df_manual.empty:
+        st.session_state.edited_scenario_desc_df = pd.concat(
+            [st.session_state.edited_scenario_desc_df, edited_scenario_desc_df_manual],
+            ignore_index=True
+        )
 
     # Create a DataFrame with one column per scenario
-    scenario_columns = ["Item"] + [f"{row['Scenario']} (%)" for index, row in edited_scenario_desc_df.iterrows()]
-    scenario_data = [[item] + [100.0]*int(num_scenarios) for item in bau_data["Item"]]
+    scenario_columns = ["Item"] + [f"{row['Scenario']} (%)" for index, row in st.session_state.edited_scenario_desc_df.iterrows()]
+    scenario_data = [[item] + [100.0]*len(st.session_state.edited_scenario_desc_df) for item in bau_data["Item"]]
     scenario_df = pd.DataFrame(scenario_data, columns=scenario_columns)
 
     st.write("""
@@ -537,7 +552,7 @@ def main():
         # Create a DataFrame for criteria values
         criteria_columns = ["Scenario"] + selected_criteria
         criteria_data = []
-        for index, row in edited_scenario_desc_df.iterrows():
+        for index, row in st.session_state.edited_scenario_desc_df.iterrows():
             scenario = row["Scenario"]
             criteria_values = [scenario] + [1 for _ in selected_criteria]  # Initialize with 1
             criteria_data.append(criteria_values)
