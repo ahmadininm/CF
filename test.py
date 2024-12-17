@@ -52,17 +52,17 @@ def test_openai_linkage():
             temperature=0.7,
         )
         message = response.choices[0].message.content.strip()
-        st.success(f"OpenAI API is working fine. Response: {message}")
+        st.sidebar.success(f"OpenAI API is working fine. Response: {message}")
     except InvalidRequestError as e:
-        st.error(f"OpenAI API test failed: {e}")
+        st.sidebar.error(f"OpenAI API test failed: {e}")
     except AuthenticationError as e:
-        st.error(f"Authentication failed: {e}")
+        st.sidebar.error(f"Authentication failed: {e}")
     except RateLimitError as e:
-        st.error(f"Rate limit exceeded: {e}")
+        st.sidebar.error(f"Rate limit exceeded: {e}")
     except OpenAIError as e:
-        st.error(f"OpenAI API error: {e}")
+        st.sidebar.error(f"OpenAI API error: {e}")
     except Exception as e:
-        st.error(f"Unexpected error: {e}")
+        st.sidebar.error(f"Unexpected error: {e}")
 
 # ----------------------- Session State Management -----------------------
 def save_session_state():
@@ -113,9 +113,9 @@ def load_session_state(uploaded_file):
             criteria_values_loaded[numeric_cols] = criteria_values_loaded[numeric_cols].apply(pd.to_numeric, errors='coerce').fillna(1.0)
             st.session_state.edited_criteria_df = criteria_values_loaded
         
-        st.success("Progress loaded successfully!")
+        st.sidebar.success("Progress loaded successfully!")
     except Exception as e:
-        st.error(f"Failed to load progress: {e}")
+        st.sidebar.error(f"Failed to load progress: {e}")
 
 # ----------------------- OpenAI Scenario Generation -----------------------
 def generate_scenarios(description, num_scenarios, bau_summary):
@@ -164,7 +164,7 @@ def generate_scenarios(description, num_scenarios, bau_summary):
                     name, desc = name_desc.split(':', 1)
                     unique_name = get_unique_scenario_name(name.strip(), existing_names)
                     scenarios.append({"name": unique_name, "description": desc.strip()})
-                    existing_names.append(unique_name)
+                    # Do NOT append to existing_names to prevent AI-suggested scenarios from being stored
         return scenarios
     except OpenAIError as e:
         st.error(f"OpenAI API Error: {e}")
@@ -273,7 +273,7 @@ def main():
     st.subheader("Add Custom Items (Optional)")
     st.write("If there are any additional sources of emissions not accounted for above, you can add them here.")
     if st.checkbox("Add custom items?"):
-        num_custom_items = st.number_input("How many custom items would you like to add?", min_value=1, step=1, value=1)
+        num_custom_items = st.number_input("How many custom items would you like to add?", min_value=1, step=1, value=1, key="num_custom_items")
         for i in range(int(num_custom_items)):
             item_name = st.text_input(f"Custom Item {i + 1} Name:", key=f"custom_item_name_{i}")
             emission_factor = st.number_input(
@@ -293,17 +293,19 @@ def main():
             if item_name.strip() != "":
                 # Add to BAU Data
                 new_row = pd.DataFrame({"Item": [item_name], "Daily Usage (Units)": [usage]})
-                bau_data = pd.concat([bau_data, new_row], ignore_index=True)
-                emission_factors[item_name] = emission_factor
+                st.session_state.bau_data = pd.concat([st.session_state.bau_data, new_row], ignore_index=True)
+                st.session_state.emission_factors[item_name] = emission_factor
 
     # Fill missing emission factors in the DataFrame
+    bau_data = st.session_state.bau_data  # Update bau_data after possible additions
+    emission_factors = st.session_state.emission_factors  # Update emission_factors after possible additions
     bau_data["Emission Factor (kg CO₂e/unit)"] = bau_data["Item"].map(emission_factors).fillna(0)
 
     # Calculate emissions for BAU
     bau_data["Daily Emissions (kg CO₂e)"] = bau_data["Daily Usage (Units)"] * bau_data["Emission Factor (kg CO₂e/unit)"]
     bau_data["Annual Emissions (kg CO₂e)"] = bau_data["Daily Emissions (kg CO₂e)"] * 365
 
-     # ----------------------- Ensure BAU Graph Maintains Input Order -----------------------
+    # ----------------------- Ensure BAU Graph Maintains Input Order -----------------------
 
     # Reorder bau_data to ensure default items come first, followed by custom items
     default_items = [
@@ -319,6 +321,9 @@ def main():
 
     # Convert 'Item' to a categorical type to preserve order in the bar chart
     bau_data_ordered['Item'] = pd.Categorical(bau_data_ordered['Item'], categories=bau_data_ordered['Item'], ordered=True)
+
+    # Update session state with ordered data
+    st.session_state.bau_data = bau_data_ordered
 
     # Display BAU summary
     st.write("### BAU Results")
@@ -342,7 +347,10 @@ def main():
         key="activities_description_input"
     )
     
-        # ----------------------- Scenario Generation -----------------------
+    # ----------------------- Scenario Generation -----------------------
+    # Initialize a container for suggested scenarios
+    suggested_scenarios_container = st.container()
+
     if activities_description.strip() != "":
         st.success("Activities description received. You can now generate scenario suggestions based on this information.")
 
@@ -362,35 +370,24 @@ def main():
             with st.spinner("Generating scenarios..."):
                 generated_scenarios = generate_scenarios(activities_description, num_scenarios, bau_summary)
                 if generated_scenarios:
-                    # Create a DataFrame for scenario descriptions
-                    scenario_desc_columns = ["Scenario", "Description"]
-                    scenario_desc_data = [[scenario['name'], scenario['description']] for scenario in generated_scenarios]
-                    new_scenario_desc_df = pd.DataFrame(scenario_desc_data, columns=scenario_desc_columns)
+                    st.success(f"{num_scenarios} Scenarios generated successfully!")
                     
-                    # Append the new scenarios to the existing ones in session state using pd.concat()
-                    if not st.session_state.edited_scenario_desc_df.empty:
-                        st.session_state.edited_scenario_desc_df = pd.concat(
-                            [st.session_state.edited_scenario_desc_df, new_scenario_desc_df],
-                            ignore_index=True
-                        )
-                    else:
-                        st.session_state.edited_scenario_desc_df = new_scenario_desc_df
-
-                    st.success("5 Scenarios generated successfully! You can now review and edit them as needed.")
+                    # Display the suggested scenarios without adding them to session state
+                    with suggested_scenarios_container:
+                        st.write("### Suggested Scenarios")
+                        for idx, scenario in enumerate(generated_scenarios, 1):
+                            st.markdown(f"**{idx}. {scenario['name']}**: {scenario['description']}")
+                        
+                        st.write("If you want to add any of these suggested scenarios to your main list, please do so manually in the **'All Scenarios'** section below.")
                 else:
                     st.error("No scenarios were generated. Please try again or enter a more detailed description.")
 
     # ----------------------- Display Generated Scenarios -----------------------
     st.subheader("Generated Scenarios")
-    st.write("Below are the scenarios generated based on your description and BAU data. You can review and edit them as needed.")
+    st.write("Below are the scenarios generated based on your description and BAU data. These are suggestions and are **not** added to your main scenarios list. You can manually add them if desired.")
 
-    if not st.session_state.edited_scenario_desc_df.empty:
-        try:
-            st.dataframe(st.session_state.edited_scenario_desc_df, use_container_width=True)
-        except Exception as e:
-            st.error(f"Error displaying scenarios: {e}")
-    else:
-        st.info("No scenarios generated yet. Please generate scenarios using the button above.")
+    # Since suggested scenarios are displayed separately, this section can be repurposed or kept for user clarity
+    # Alternatively, you can remove this section if it's redundant
 
     # ----------------------- Scenario Planning -----------------------
 
@@ -422,17 +419,22 @@ def main():
     try:
         edited_scenario_desc_df_manual = st.data_editor(scenario_desc_df_manual, use_container_width=True, key="scenario_desc_editor_manual")
     except AttributeError:
+        # Fallback for older Streamlit versions
         edited_scenario_desc_df_manual = st.experimental_data_editor(scenario_desc_df_manual, use_container_width=True, key="scenario_desc_editor_manual")
 
     # Append manual scenarios to the session state with unique names using pd.concat()
     if not edited_scenario_desc_df_manual.empty:
-        # Create a DataFrame with unique names
+        # Create a list to hold new manual scenarios
         new_manual_scenarios = []
         existing_names = st.session_state.edited_scenario_desc_df['Scenario'].tolist()
         for index, row in edited_scenario_desc_df_manual.iterrows():
             base_name = row["Scenario"]
             unique_name = get_unique_scenario_name(base_name, existing_names)
-            new_manual_scenarios.append({"Scenario": unique_name, "Description": row["Description"]})
+            if row["Description"].strip() == "":
+                description = "No description provided."
+            else:
+                description = row["Description"].strip()
+            new_manual_scenarios.append({"Scenario": unique_name, "Description": description})
             existing_names.append(unique_name)
         
         if new_manual_scenarios:
@@ -441,8 +443,9 @@ def main():
                 [st.session_state.edited_scenario_desc_df, new_manual_scenarios_df],
                 ignore_index=True
             )
+            st.success(f"Added {len(new_manual_scenarios_df)} scenario(s) successfully!")
 
-    # Display all scenarios (both generated and manually added)
+    # Display all scenarios (only user-added scenarios)
     st.subheader("All Scenarios")
     st.write("Here are all your current scenarios with their descriptions.")
 
@@ -452,66 +455,71 @@ def main():
         except Exception as e:
             st.error(f"Error displaying scenarios: {e}")
     else:
-        st.info("No scenarios available.")
+        st.info("No scenarios available. Please add scenarios above.")
 
     # Create a DataFrame with one column per scenario
-    scenario_columns = ["Item"] + [f"{row['Scenario']} (%)" for index, row in st.session_state.edited_scenario_desc_df.iterrows()]
-    scenario_data = [[item] + [100.0]*len(st.session_state.edited_scenario_desc_df) for item in bau_data["Item"]]
-    scenario_df = pd.DataFrame(scenario_data, columns=scenario_columns)
+    if not st.session_state.edited_scenario_desc_df.empty:
+        scenario_columns = ["Item"] + [f"{row['Scenario']} (%)" for index, row in st.session_state.edited_scenario_desc_df.iterrows()]
+        scenario_data = [[item] + [100.0]*len(st.session_state.edited_scenario_desc_df) for item in bau_data_ordered["Item"]]
+        scenario_df = pd.DataFrame(scenario_data, columns=scenario_columns)
+    else:
+        st.warning("Please add at least one scenario to proceed with scenario planning.")
+        scenario_df = pd.DataFrame()
 
-    st.write("""
-        Assign usage percentages to each scenario for each BAU item. These percentages are relative to the BAU.
-        - **90%** means using **10% less** of that item compared to BAU.
-        - **120%** means using **20% more** of that item compared to BAU.
-    
-    """)
+    if not scenario_df.empty:
+        st.write("""
+            Assign usage percentages to each scenario for each BAU item. These percentages are relative to the BAU.
+            - **90%** means using **10% less** of that item compared to BAU.
+            - **120%** means using **20% more** of that item compared to BAU.
+        """)
 
-    # Editable table for scenario percentages
-    try:
-        edited_scenario_df = st.data_editor(scenario_df, use_container_width=True, key="scenario_percent_editor")
-    except AttributeError:
-        edited_scenario_df = st.experimental_data_editor(scenario_df, use_container_width=True, key="scenario_percent_editor")
+        # Editable table for scenario percentages
+        try:
+            edited_scenario_df = st.data_editor(scenario_df, use_container_width=True, key="scenario_percent_editor")
+        except AttributeError:
+            # Fallback for older Streamlit versions
+            edited_scenario_df = st.experimental_data_editor(scenario_df, use_container_width=True, key="scenario_percent_editor")
 
-    # Convert columns (except Item) to numeric
-    for col in edited_scenario_df.columns[1:]:
-        edited_scenario_df[col] = pd.to_numeric(edited_scenario_df[col], errors='coerce').fillna(100.0)
+        # Convert columns (except Item) to numeric
+        for col in edited_scenario_df.columns[1:]:
+            edited_scenario_df[col] = pd.to_numeric(edited_scenario_df[col], errors='coerce').fillna(100.0)
 
-    # Calculate scenario emissions and savings
-    results = []
-    for col in edited_scenario_df.columns[1:]:
-        usage_percentages = edited_scenario_df[col].values / 100.0
-        scenario_daily_emissions = (bau_data["Daily Usage (Units)"].values 
-                                    * usage_percentages 
-                                    * bau_data["Emission Factor (kg CO₂e/unit)"].values).sum()
-        scenario_annual_emissions = scenario_daily_emissions * 365
-        co2_saving_kg = total_annual_bau - scenario_annual_emissions
-        co2_saving_percent = (co2_saving_kg / total_annual_bau * 100) if total_annual_bau != 0 else 0
+        # Calculate scenario emissions and savings
+        results = []
+        for col in edited_scenario_df.columns[1:]:
+            usage_percentages = edited_scenario_df[col].values / 100.0
+            scenario_daily_emissions = (bau_data_ordered["Daily Usage (Units)"].values 
+                                        * usage_percentages 
+                                        * bau_data_ordered["Emission Factor (kg CO₂e/unit)"].values).sum()
+            scenario_annual_emissions = scenario_daily_emissions * 365
+            co2_saving_kg = total_annual_bau - scenario_annual_emissions
+            co2_saving_percent = (co2_saving_kg / total_annual_bau * 100) if total_annual_bau != 0 else 0
 
-        results.append({
-            "Scenario": col.replace(" (%)",""),  # Remove " (%)" from the scenario name
-            "Total Daily Emissions (kg CO₂e)": scenario_daily_emissions,
-            "Total Annual Emissions (kg CO₂e)": scenario_annual_emissions,
-            "CO₂ Saving (kg CO₂e/year)": co2_saving_kg,
-            "CO₂ Saving (%)": co2_saving_percent
-        })
+            results.append({
+                "Scenario": col.replace(" (%)",""),  # Remove " (%)" from the scenario name
+                "Total Daily Emissions (kg CO₂e)": scenario_daily_emissions,
+                "Total Annual Emissions (kg CO₂e)": scenario_annual_emissions,
+                "CO₂ Saving (kg CO₂e/year)": co2_saving_kg,
+                "CO₂ Saving (%)": co2_saving_percent
+            })
 
-    results_df = pd.DataFrame(results)
-    # Reindex the results to start from 1
-    results_df.index = range(1, len(results_df) + 1)
+        results_df = pd.DataFrame(results)
+        # Reindex the results to start from 1
+        results_df.index = range(1, len(results_df) + 1)
 
-    st.write("### Scenario Results")
-    st.dataframe(results_df)
+        st.write("### Scenario Results")
+        st.dataframe(results_df)
 
-    st.subheader("CO₂ Savings Compared to BAU (%)")
-    st.bar_chart(results_df.set_index("Scenario")["CO₂ Saving (%)"], use_container_width=True)
+        st.subheader("CO₂ Savings Compared to BAU (%)")
+        st.bar_chart(results_df.set_index("Scenario")["CO₂ Saving (%)"], use_container_width=True)
 
-    # Option to download scenario results as CSV
-    st.download_button(
-        label="Download Scenario Results as CSV",
-        data=results_df.to_csv(index=False),
-        file_name="scenario_results.csv",
-        mime="text/csv"
-    )
+        # Option to download scenario results as CSV
+        st.download_button(
+            label="Download Scenario Results as CSV",
+            data=results_df.to_csv(index=False),
+            file_name="scenario_results.csv",
+            mime="text/csv"
+        )
 
     # ----------------------- Additional Criteria -----------------------
 
