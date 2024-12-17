@@ -253,7 +253,7 @@ def main():
             key=f"bau_usage_{i}"
         )
     
-       # Option to add custom items
+    # Option to add custom items
     st.subheader("Add Custom Items (Optional)")
     st.write("If there are any additional sources of emissions not accounted for above, you can add them here.")
     if st.checkbox("Add custom items?"):
@@ -333,27 +333,27 @@ def main():
         st.write("Click the button below to generate scenario suggestions based on your activities description.")
 
         if st.button("Generate Scenarios"):
-            num_scenarios = st.number_input(
-                "How many scenarios would you like to generate?",
-                min_value=1,
-                step=1,
-                value=3,
-                key="num_scenarios_to_generate"
-            )
+            num_scenarios = 5  # Fixed number of scenarios to generate per click
             with st.spinner("Generating scenarios..."):
-                generated_scenarios = generate_scenarios(activities_description, int(num_scenarios))
+                generated_scenarios = generate_scenarios(activities_description, num_scenarios)
                 if generated_scenarios:
                     # Create a DataFrame for scenario descriptions
                     scenario_desc_columns = ["Scenario", "Description"]
                     scenario_desc_data = [[scenario['name'], scenario['description']] for scenario in generated_scenarios]
-                    scenario_desc_df = pd.DataFrame(scenario_desc_data, columns=scenario_desc_columns)
+                    new_scenario_desc_df = pd.DataFrame(scenario_desc_data, columns=scenario_desc_columns)
                     
-                    # Update the session state with generated scenarios
-                    st.session_state.edited_scenario_desc_df = scenario_desc_df
-                    st.success("Scenarios generated successfully! You can now review and edit them as needed.")
+                    # Append to existing session state if it exists, else create new
+                    if 'edited_scenario_desc_df' in st.session_state and not st.session_state.edited_scenario_desc_df.empty:
+                        st.session_state.edited_scenario_desc_df = pd.concat(
+                            [st.session_state.edited_scenario_desc_df, new_scenario_desc_df],
+                            ignore_index=True
+                        )
+                    else:
+                        st.session_state.edited_scenario_desc_df = new_scenario_desc_df
+                    
+                    st.success(f"Added {num_scenarios} scenarios successfully! You can now review and edit them as needed.")
                 else:
                     st.error("No scenarios were generated. Please try again or enter a more detailed description.")
-    
     
 
     # ----------------------- Scenario Planning -----------------------
