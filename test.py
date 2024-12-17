@@ -52,17 +52,17 @@ def test_openai_linkage():
             temperature=0.7,
         )
         message = response.choices[0].message.content.strip()
-        st.sidebar.success(f"OpenAI API is working fine. Response: {message}")
+        st.success(f"OpenAI API is working fine. Response: {message}")
     except InvalidRequestError as e:
-        st.sidebar.error(f"OpenAI API test failed: {e}")
+        st.error(f"OpenAI API test failed: {e}")
     except AuthenticationError as e:
-        st.sidebar.error(f"Authentication failed: {e}")
+        st.error(f"Authentication failed: {e}")
     except RateLimitError as e:
-        st.sidebar.error(f"Rate limit exceeded: {e}")
+        st.error(f"Rate limit exceeded: {e}")
     except OpenAIError as e:
-        st.sidebar.error(f"OpenAI API error: {e}")
+        st.error(f"OpenAI API error: {e}")
     except Exception as e:
-        st.sidebar.error(f"Unexpected error: {e}")
+        st.error(f"Unexpected error: {e}")
 
 # ----------------------- Session State Management -----------------------
 def save_session_state():
@@ -74,7 +74,7 @@ def save_session_state():
     state = {
         'bau_data': st.session_state.get('bau_data').to_json(),
         'emission_factors': st.session_state.get('emission_factors'),
-        'scenario_desc_df': st.session_state.get('edited_scenario_desc_df').to_json(),
+        'scenario_desc_df': st.session_state.get('scenario_desc_df').to_json(),
         'selected_criteria': st.session_state.get('selected_criteria'),
         'edited_criteria_df': st.session_state.get('edited_criteria_df').to_json() if 'edited_criteria_df' in st.session_state else None
     }
@@ -100,7 +100,7 @@ def load_session_state(uploaded_file):
         
         # Load Scenario Descriptions
         scenario_desc_loaded = pd.read_json(data['scenario_desc_df'])
-        st.session_state.edited_scenario_desc_df = scenario_desc_loaded
+        st.session_state.scenario_desc_df = scenario_desc_loaded
         
         # Load Selected Criteria
         st.session_state.selected_criteria = data['selected_criteria']
@@ -113,28 +113,25 @@ def load_session_state(uploaded_file):
             criteria_values_loaded[numeric_cols] = criteria_values_loaded[numeric_cols].apply(pd.to_numeric, errors='coerce').fillna(1.0)
             st.session_state.edited_criteria_df = criteria_values_loaded
         
-        st.sidebar.success("Progress loaded successfully!")
+        st.success("Progress loaded successfully!")
     except Exception as e:
-        st.sidebar.error(f"Failed to load progress: {e}")
+        st.error(f"Failed to load progress: {e}")
 
 # ----------------------- OpenAI Scenario Generation -----------------------
-def generate_scenarios(description, num_scenarios, bau_summary):
+def generate_scenarios(description, num_scenarios):
     """
-    Uses OpenAI's GPT model to generate scenario suggestions based on the activities description
-    and BAU data.
+    Uses OpenAI's GPT model to generate scenario suggestions based on the activities description.
     Args:
         description (str): The activities description input by the user.
         num_scenarios (int): The number of scenarios to generate.
-        bau_summary (str): Summary of BAU data to include in the prompt.
     Returns:
         list of dict: Generated scenarios with 'name' and 'description'.
     """
     prompt = (
-        f"Based on the following description of an organization's activities and sustainability goals, and the provided Business As Usual (BAU) data, "
+        f"Based on the following description of an organization's activities and sustainability goals, "
         f"generate {num_scenarios} detailed sustainability scenarios. "
         f"Each scenario should include a name and a brief description.\n\n"
         f"Description:\n{description}\n\n"
-        f"{bau_summary}\n\n"
         f"Scenarios:"
     )
     
@@ -152,7 +149,6 @@ def generate_scenarios(description, num_scenarios, bau_summary):
         scenarios_text = response.choices[0].message.content.strip()
         # Split scenarios based on numbering
         scenarios = []
-        existing_names = st.session_state.edited_scenario_desc_df['Scenario'].tolist()
         for scenario in scenarios_text.split('\n'):
             if scenario.strip() == "":
                 continue
@@ -162,9 +158,7 @@ def generate_scenarios(description, num_scenarios, bau_summary):
                 name_desc = parts[1].strip()
                 if ':' in name_desc:
                     name, desc = name_desc.split(':', 1)
-                    unique_name = get_unique_scenario_name(name.strip(), existing_names)
-                    scenarios.append({"name": unique_name, "description": desc.strip()})
-                    # Do NOT append to existing_names to prevent AI-suggested scenarios from being stored
+                    scenarios.append({"name": name.strip(), "description": desc.strip()})
         return scenarios
     except OpenAIError as e:
         st.error(f"OpenAI API Error: {e}")
@@ -237,8 +231,11 @@ def main():
         })
         st.session_state.emission_factors = emission_factors.copy()
     
-    if 'edited_scenario_desc_df' not in st.session_state:
-        st.session_state.edited_scenario_desc_df = pd.DataFrame(columns=["Scenario", "Description"])
+    if 'scenario_desc_df' not in st.session_state:
+        st.session_state.scenario_desc_df = pd.DataFrame(columns=["Scenario", "Description"])
+    
+    if 'suggested_scenarios_df' not in st.session_state:
+        st.session_state.suggested_scenarios_df = pd.DataFrame(columns=["Scenario", "Description"])
     
     if 'criteria_df' not in st.session_state:
         st.session_state.criteria_df = pd.DataFrame(columns=["Scenario"])
@@ -249,8 +246,8 @@ def main():
     if 'proposed_scenarios' not in st.session_state:
         st.session_state.proposed_scenarios = []
     
-    if 'ai_proposed' not in st.session_state:
-        st.session_state.ai_proposed = False
+    if 'edited_criteria_df' not in st.session_state:
+        st.session_state.edited_criteria_df = pd.DataFrame()
 
     # ----------------------- BAU Inputs -----------------------
 
@@ -305,7 +302,7 @@ def main():
     bau_data["Daily Emissions (kg CO₂e)"] = bau_data["Daily Usage (Units)"] * bau_data["Emission Factor (kg CO₂e/unit)"]
     bau_data["Annual Emissions (kg CO₂e)"] = bau_data["Daily Emissions (kg CO₂e)"] * 365
 
-    # ----------------------- Ensure BAU Graph Maintains Input Order -----------------------
+     # ----------------------- Ensure BAU Graph Maintains Input Order -----------------------
 
     # Reorder bau_data to ensure default items come first, followed by custom items
     default_items = [
@@ -348,46 +345,48 @@ def main():
     )
     
     # ----------------------- Scenario Generation -----------------------
-    # Initialize a container for suggested scenarios
-    suggested_scenarios_container = st.container()
-
     if activities_description.strip() != "":
-        st.success("Activities description received. You can now generate scenario suggestions based on this information.")
+        st.success("Activities description received. You can now define your scenarios based on this information.")
 
         st.subheader("Generate Scenario Suggestions")
-        st.write("Click the button below to generate scenario suggestions based on your activities description and BAU data.")
+        st.write("Click the button below to generate scenario suggestions based on your activities description.")
 
-        if st.button("Suggest 5 Scenarios"):
-            num_scenarios = 5  # Fixed number of scenarios per click
-            # Create a summary of BAU data to include in the prompt
-            bau_summary = "Business As Usual (BAU) Data:\n"
-            bau_summary += "Items and Daily Usage:\n"
-            for _, row in bau_data_ordered.iterrows():
-                bau_summary += f"- {row['Item']}: {row['Daily Usage (Units)']} units/day\n"
-            bau_summary += f"\nTotal Daily Emissions: {total_daily_bau:.2f} kg CO₂e/day"
-            bau_summary += f"\nTotal Annual Emissions: {total_annual_bau:.2f} kg CO₂e/year"
-
+        if st.button("Generate Scenarios"):
+            num_scenarios = st.number_input(
+                "How many scenarios would you like to generate?",
+                min_value=1,
+                step=1,
+                value=5,
+                key="num_scenarios_to_generate"
+            )
             with st.spinner("Generating scenarios..."):
-                generated_scenarios = generate_scenarios(activities_description, num_scenarios, bau_summary)
+                generated_scenarios = generate_scenarios(activities_description, int(num_scenarios))
                 if generated_scenarios:
-                    st.success(f"{num_scenarios} Scenarios generated successfully!")
+                    # Create a DataFrame for scenario descriptions
+                    scenario_desc_columns = ["Scenario", "Description"]
+                    scenario_desc_data = [[scenario['name'], scenario['description']] for scenario in generated_scenarios]
+                    scenario_desc_df = pd.DataFrame(scenario_desc_data, columns=scenario_desc_columns)
                     
-                    # Display the suggested scenarios without adding them to session state
-                    with suggested_scenarios_container:
-                        st.write("### Suggested Scenarios")
-                        for idx, scenario in enumerate(generated_scenarios, 1):
-                            st.markdown(f"**{idx}. {scenario['name']}**: {scenario['description']}")
-                        
-                        st.write("If you want to add any of these suggested scenarios to your main list, please do so manually in the **'All Scenarios'** section below.")
+                    # Append the new scenarios to the 'suggested_scenarios_df'
+                    st.session_state.suggested_scenarios_df = pd.concat(
+                        [st.session_state.suggested_scenarios_df, scenario_desc_df],
+                        ignore_index=True
+                    )
+                    st.success("Scenarios generated successfully! You can now review and use them as needed.")
                 else:
                     st.error("No scenarios were generated. Please try again or enter a more detailed description.")
 
-    # ----------------------- Display Generated Scenarios -----------------------
-    st.subheader("Generated Scenarios")
-    st.write("Below are the scenarios generated based on your description and BAU data. These are suggestions and are **not** added to your main scenarios list. You can manually add them if desired.")
+    # ----------------------- Display Suggested Scenarios -----------------------
+    st.subheader("Suggested Scenarios")
+    st.write("These scenarios are generated based on your description. You can choose to use them or ignore them as needed.")
 
-    # Since suggested scenarios are displayed separately, this section can be repurposed or kept for user clarity
-    # Alternatively, you can remove this section if it's redundant
+    if not st.session_state.suggested_scenarios_df.empty:
+        try:
+            st.dataframe(st.session_state.suggested_scenarios_df, use_container_width=True)
+        except Exception as e:
+            st.error(f"Error displaying suggested scenarios: {e}")
+    else:
+        st.info("No suggested scenarios generated yet. Click the 'Generate Scenarios' button above.")
 
     # ----------------------- Scenario Planning -----------------------
 
@@ -400,8 +399,8 @@ def main():
         st.info("Please describe your organization's activities to proceed with scenario planning.")
 
     # Number of scenarios input
-    num_scenarios_input = st.number_input(
-        "How many scenarios do you want to add manually?",
+    num_scenarios = st.number_input(
+        "How many scenarios do you want to add?",
         min_value=1,
         step=1,
         value=1,
@@ -410,57 +409,45 @@ def main():
 
     # Create a DataFrame for scenario descriptions
     scenario_desc_columns = ["Scenario", "Description"]
-    scenario_desc_data = [[f"Scenario {i+1}", ""] for i in range(int(num_scenarios_input))]
-    scenario_desc_df_manual = pd.DataFrame(scenario_desc_data, columns=scenario_desc_columns)
+    scenario_desc_data = [[f"Scenario {i+1}", ""] for i in range(int(num_scenarios))]
+    scenario_desc_df = pd.DataFrame(scenario_desc_data, columns=scenario_desc_columns)
 
     st.write("Please describe each scenario. Double-click a cell to edit the description.")
 
     # Editable table for scenario descriptions
     try:
-        edited_scenario_desc_df_manual = st.data_editor(scenario_desc_df_manual, use_container_width=True, key="scenario_desc_editor_manual")
+        edited_scenario_desc_df = st.data_editor(scenario_desc_df, use_container_width=True, key="scenario_desc_editor")
     except AttributeError:
-        # Fallback for older Streamlit versions
-        edited_scenario_desc_df_manual = st.experimental_data_editor(scenario_desc_df_manual, use_container_width=True, key="scenario_desc_editor_manual")
+        edited_scenario_desc_df = st.experimental_data_editor(scenario_desc_df, use_container_width=True, key="scenario_desc_editor")
 
-    # Append manual scenarios to the session state with unique names using pd.concat()
-    if not edited_scenario_desc_df_manual.empty:
-        # Create a list to hold new manual scenarios
-        new_manual_scenarios = []
-        existing_names = st.session_state.edited_scenario_desc_df['Scenario'].tolist()
-        for index, row in edited_scenario_desc_df_manual.iterrows():
-            base_name = row["Scenario"]
-            unique_name = get_unique_scenario_name(base_name, existing_names)
-            if row["Description"].strip() == "":
-                description = "No description provided."
-            else:
-                description = row["Description"].strip()
-            new_manual_scenarios.append({"Scenario": unique_name, "Description": description})
-            existing_names.append(unique_name)
-        
-        if new_manual_scenarios:
-            new_manual_scenarios_df = pd.DataFrame(new_manual_scenarios)
-            st.session_state.edited_scenario_desc_df = pd.concat(
-                [st.session_state.edited_scenario_desc_df, new_manual_scenarios_df],
-                ignore_index=True
-            )
-            st.success(f"Added {len(new_manual_scenarios_df)} scenario(s) successfully!")
+    # Save edited scenario descriptions to session state
+    # If there are existing scenarios, concatenate
+    if not edited_scenario_desc_df.empty:
+        existing_scenarios = st.session_state.scenario_desc_df
+        new_scenarios = edited_scenario_desc_df.copy()
+        # Ensure unique scenario names
+        existing_names = existing_scenarios['Scenario'].tolist()
+        new_scenarios['Scenario'] = new_scenarios['Scenario'].apply(lambda x: get_unique_scenario_name(x, existing_names))
+        existing_scenarios = pd.concat([existing_scenarios, new_scenarios], ignore_index=True)
+        st.session_state.scenario_desc_df = existing_scenarios
+        st.success(f"Added {len(new_scenarios)} scenario(s) successfully!")
 
     # Display all scenarios (only user-added scenarios)
     st.subheader("All Scenarios")
     st.write("Here are all your current scenarios with their descriptions.")
 
-    if not st.session_state.edited_scenario_desc_df.empty:
+    if not st.session_state.scenario_desc_df.empty:
         try:
-            st.dataframe(st.session_state.edited_scenario_desc_df, use_container_width=True)
+            st.dataframe(st.session_state.scenario_desc_df, use_container_width=True)
         except Exception as e:
             st.error(f"Error displaying scenarios: {e}")
     else:
         st.info("No scenarios available. Please add scenarios above.")
 
     # Create a DataFrame with one column per scenario
-    if not st.session_state.edited_scenario_desc_df.empty:
-        scenario_columns = ["Item"] + [f"{row['Scenario']} (%)" for index, row in st.session_state.edited_scenario_desc_df.iterrows()]
-        scenario_data = [[item] + [100.0]*len(st.session_state.edited_scenario_desc_df) for item in bau_data_ordered["Item"]]
+    if not st.session_state.scenario_desc_df.empty:
+        scenario_columns = ["Item"] + [f"{row['Scenario']} (%)" for index, row in st.session_state.scenario_desc_df.iterrows()]
+        scenario_data = [[item] + [100.0]*int(len(st.session_state.scenario_desc_df)) for item in bau_data_ordered["Item"]]
         scenario_df = pd.DataFrame(scenario_data, columns=scenario_columns)
     else:
         st.warning("Please add at least one scenario to proceed with scenario planning.")
@@ -477,7 +464,6 @@ def main():
         try:
             edited_scenario_df = st.data_editor(scenario_df, use_container_width=True, key="scenario_percent_editor")
         except AttributeError:
-            # Fallback for older Streamlit versions
             edited_scenario_df = st.experimental_data_editor(scenario_df, use_container_width=True, key="scenario_percent_editor")
 
         # Convert columns (except Item) to numeric
@@ -608,7 +594,7 @@ def main():
         # Create a DataFrame for criteria values
         criteria_columns = ["Scenario"] + selected_criteria
         criteria_data = []
-        for index, row in st.session_state.edited_scenario_desc_df.iterrows():
+        for index, row in st.session_state.scenario_desc_df.iterrows():
             scenario = row["Scenario"]
             criteria_values = [scenario] + [1 for _ in selected_criteria]  # Initialize with 1
             criteria_data.append(criteria_values)
