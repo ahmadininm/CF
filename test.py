@@ -12,10 +12,6 @@ import importlib.metadata
 from openai.error import InvalidRequestError, AuthenticationError, RateLimitError, OpenAIError
 
 # ----------------------- OpenAI Configuration -----------------------
-# Ensure you have set your OpenAI API key in Streamlit secrets as follows:
-# [OPENAI]
-# API_KEY = "your-openai-api-key"
-
 openai.api_key = st.secrets["OPENAI_API_KEY"]
 
 # ----------------------- Helper Functions -----------------------
@@ -26,19 +22,6 @@ def get_openai_version_importlib():
     except importlib.metadata.PackageNotFoundError:
         return "Package not found."
 
-# Helper function to ensure unique scenario names
-def get_unique_scenario_name(base_name, existing_names):
-    if base_name not in existing_names:
-        return base_name
-    else:
-        i = 1
-        new_name = f"{base_name} {i}"
-        while new_name in existing_names:
-            i += 1
-            new_name = f"{base_name} {i}"
-        return new_name
-
-# ----------------------- Test OpenAI Linkage -----------------------
 def test_openai_linkage():
     try:
         # Attempt a simple API call to test linkage
@@ -64,7 +47,6 @@ def test_openai_linkage():
     except Exception as e:
         st.error(f"Unexpected error: {e}")
 
-# ----------------------- Session State Management -----------------------
 def save_session_state():
     """
     Serializes the necessary session state variables into a JSON-compatible dictionary.
@@ -74,8 +56,7 @@ def save_session_state():
     state = {
         'bau_data': st.session_state.get('bau_data').to_json(),
         'emission_factors': st.session_state.get('emission_factors'),
-        'scenario_desc_df': st.session_state.get('scenario_desc_df').to_json(),
-        'suggested_scenarios_df': st.session_state.get('suggested_scenarios_df').to_json(),
+        'scenario_desc_df': st.session_state.get('edited_scenario_desc_df').to_json(),
         'selected_criteria': st.session_state.get('selected_criteria'),
         'edited_criteria_df': st.session_state.get('edited_criteria_df').to_json() if 'edited_criteria_df' in st.session_state else None
     }
@@ -101,11 +82,7 @@ def load_session_state(uploaded_file):
         
         # Load Scenario Descriptions
         scenario_desc_loaded = pd.read_json(data['scenario_desc_df'])
-        st.session_state.scenario_desc_df = scenario_desc_loaded
-        
-        # Load Suggested Scenarios
-        suggested_scenarios_loaded = pd.read_json(data['suggested_scenarios_df'])
-        st.session_state.suggested_scenarios_df = suggested_scenarios_loaded
+        st.session_state.edited_scenario_desc_df = scenario_desc_loaded
         
         # Load Selected Criteria
         st.session_state.selected_criteria = data['selected_criteria']
@@ -122,48 +99,67 @@ def load_session_state(uploaded_file):
     except Exception as e:
         st.error(f"Failed to load progress: {e}")
 
-# ----------------------- OpenAI Scenario Generation -----------------------
-def generate_scenarios(description, num_scenarios):
+def generate_scenarios(description, bau_data, total_daily_bau, total_annual_bau):
     """
-    Uses OpenAI's GPT model to generate scenario suggestions based on the activities description.
-    Args:
-        description (str): The activities description input by the user.
-        num_scenarios (int): The number of scenarios to generate.
-    Returns:
-        list of dict: Generated scenarios with 'name' and 'description'.
+    Uses OpenAI's GPT model to generate scenario suggestions. Always generates 5 scenarios.
+    We incorporate the BAU data and emissions to provide more context.
+    The scenarios should be returned as a list of dicts with 'name' and 'description'.
     """
+    
+    # Extract items and usage info to provide to the model
+    items_info = "\n".join([f"- {row['Item']}: {row['Daily Usage (Units)']} units/day, Emission Factor: {row['Emission Factor (kg CO₂e/unit)']:.4f}, Daily Emissions: {row['Daily Emissions (kg CO₂e)']:.2f}" for _, row in bau_data.iterrows()])
+    
     prompt = (
-        f"Based on the following description of an organization's activities and sustainability goals, "
-        f"generate {num_scenarios} detailed sustainability scenarios. "
-        f"Each scenario should include a name and a brief description.\n\n"
-        f"Description:\n{description}\n\n"
-        f"Scenarios:"
+        f"Here is information about the organisation:\n"
+        f"Activities description:\n{description}\n\n"
+        f"Business As Usual (BAU) data:\n"
+        f"Total Daily Emissions (BAU): {total_daily_bau:.2f} kg CO₂e/day\n"
+        f"Total Annual Emissions (BAU): {total_annual_bau:.2f} kg CO₂e/year\n"
+        f"Items and usage:\n{items_info}\n\n"
+        f"Based on the above, suggest 5 different sustainability scenario ideas focused on reducing the carbon footprint.\n"
+        f"Do not number them. For each scenario, provide a short, clear title and then a detailed description of what it involves and why it helps reduce carbon emissions.\n"
+        f"Format:\n\n"
+        f"Title: <Scenario Title>\nDescription: <Detailed scenario description>\n\n"
+        f"Title: <Another Scenario Title>\nDescription: <Detailed scenario description>\n\n"
+        f"And so on for a total of 5 scenarios."
     )
     
     try:
         response = openai.ChatCompletion.create(
-            model="gpt-3.5-turbo",  # You can choose a different model if desired
+            model="gpt-3.5-turbo",
             messages=[
                 {"role": "system", "content": "You are an expert sustainability analyst."},
                 {"role": "user", "content": prompt}
             ],
-            max_tokens=500,
+            max_tokens=1000,
             temperature=0.7,
         )
-        # Use attribute access instead of dict-style
-        scenarios_text = response.choices[0].message.content.strip()
-        # Split scenarios based on numbering
+        
+        scenarios_text = response.choices[0].message.content.strip().split('\n')
+        
         scenarios = []
-        for scenario in scenarios_text.split('\n'):
-            if scenario.strip() == "":
-                continue
-            # Assuming scenarios are listed as "1. Name: Description"
-            if '.' in scenario:
-                parts = scenario.split('.', 1)
-                name_desc = parts[1].strip()
-                if ':' in name_desc:
-                    name, desc = name_desc.split(':', 1)
-                    scenarios.append({"name": name.strip(), "description": desc.strip()})
+        current_title = None
+        current_desc = []
+        
+        for line in scenarios_text:
+            line_stripped = line.strip()
+            if line_stripped.startswith("Title:"):
+                # If we already have a current title and description, save it first
+                if current_title and current_desc:
+                    scenarios.append({"name": current_title, "description": " ".join(current_desc)})
+                current_title = line_stripped.replace("Title:", "").strip()
+                current_desc = []
+            elif line_stripped.startswith("Description:"):
+                desc = line_stripped.replace("Description:", "").strip()
+                current_desc.append(desc)
+            else:
+                if current_desc is not None and line_stripped != "":
+                    current_desc.append(line_stripped)
+        
+        # Add the last scenario if there's one pending
+        if current_title and current_desc:
+            scenarios.append({"name": current_title, "description": " ".join(current_desc)})
+        
         return scenarios
     except OpenAIError as e:
         st.error(f"OpenAI API Error: {e}")
@@ -172,7 +168,6 @@ def generate_scenarios(description, num_scenarios):
         st.error(f"Unexpected error: {e}")
         return []
 
-# ----------------------- Main Application -----------------------
 def main():
     # Set page configuration
     st.set_page_config(page_title="Sustainability Decision Assistant", layout="wide")
@@ -181,16 +176,13 @@ def main():
     st.sidebar.write("### OpenAI Package Version (importlib.metadata)")
     openai_version = get_openai_version_importlib()
     st.sidebar.write(f"**Installed OpenAI Version:** {openai_version}")
-    
-    # Optionally, display the OpenAI package version in the main app for verification
-    # st.write(f"OpenAI package version: {openai.__version__}")
-    
+
     # Test OpenAI Linkage
     test_openai_linkage()
 
     # Main Title and Description
     st.title("Sustainability Decision Assistant")
-    st.write("*A tool to prioritize scenarios for carbon savings and resource efficiency, enabling data-driven sustainable decisions.*")
+    st.write("*A tool to prioritise scenarios for carbon savings and resource efficiency, enabling data-driven sustainable decisions.*")
 
     # ----------------------- Save and Load Progress -----------------------
     st.sidebar.header("🔄 Save and Load Progress")
@@ -212,7 +204,6 @@ def main():
         load_session_state(uploaded_file)
 
     # ----------------------- Initialize Session State -----------------------
-    
     if 'bau_data' not in st.session_state:
         default_items = [
             "Gas (kWh/day)", 
@@ -239,9 +230,6 @@ def main():
     if 'scenario_desc_df' not in st.session_state:
         st.session_state.scenario_desc_df = pd.DataFrame(columns=["Scenario", "Description"])
     
-    if 'suggested_scenarios_df' not in st.session_state:
-        st.session_state.suggested_scenarios_df = pd.DataFrame(columns=["Scenario", "Description"])
-    
     if 'criteria_df' not in st.session_state:
         st.session_state.criteria_df = pd.DataFrame(columns=["Scenario"])
     
@@ -251,14 +239,14 @@ def main():
     if 'proposed_scenarios' not in st.session_state:
         st.session_state.proposed_scenarios = []
     
-    if 'edited_criteria_df' not in st.session_state:
-        st.session_state.edited_criteria_df = pd.DataFrame()
+    if 'ai_proposed' not in st.session_state:
+        st.session_state.ai_proposed = False
+
+    if 'scenario_suggestions_df' not in st.session_state:
+        st.session_state.scenario_suggestions_df = pd.DataFrame(columns=["Title", "Description"])
 
     # ----------------------- BAU Inputs -----------------------
-    
     st.subheader("Enter Daily Usage for Business As Usual (BAU)")
-
-    # Display BAU Inputs
     bau_data = st.session_state.bau_data
     emission_factors = st.session_state.emission_factors
 
@@ -275,8 +263,8 @@ def main():
     st.subheader("Add Custom Items (Optional)")
     st.write("If there are any additional sources of emissions not accounted for above, you can add them here.")
     if st.checkbox("Add custom items?"):
-        num_custom_items = st.number_input("How many custom items would you like to add?", min_value=1, step=1, value=1, key="num_custom_items")
-        for i in range(int(num_custom_items)):
+        num_custom_items = st.number_input("How many custom items would you like to add?", min_value=1, step=1, value=1)
+        for i in range(num_custom_items):
             item_name = st.text_input(f"Custom Item {i + 1} Name:", key=f"custom_item_name_{i}")
             emission_factor = st.number_input(
                 f"Custom Item {i + 1} Emission Factor (kg CO₂e/unit):", 
@@ -292,24 +280,18 @@ def main():
                 value=0.0,
                 key=f"custom_usage_{i}"
             )
-            if item_name.strip() != "":
-                # Add to BAU Data
-                new_row = pd.DataFrame({"Item": [item_name], "Daily Usage (Units)": [usage]})
-                st.session_state.bau_data = pd.concat([st.session_state.bau_data, new_row], ignore_index=True)
-                st.session_state.emission_factors[item_name] = emission_factor
+            new_row = pd.DataFrame({"Item": [item_name], "Daily Usage (Units)": [usage]})
+            bau_data = pd.concat([bau_data, new_row], ignore_index=True)
+            emission_factors[item_name] = emission_factor
 
     # Fill missing emission factors in the DataFrame
-    bau_data = st.session_state.bau_data  # Update bau_data after possible additions
-    emission_factors = st.session_state.emission_factors  # Update emission_factors after possible additions
-    bau_data["Emission Factor (kg CO₂e/unit)"] = bau_data["Item"].map(emission_factors).fillna(0).astype(float)  # Fixed line
-    
+    bau_data["Emission Factor (kg CO₂e/unit)"] = bau_data["Item"].map(emission_factors).fillna(0)
+
     # Calculate emissions for BAU
     bau_data["Daily Emissions (kg CO₂e)"] = bau_data["Daily Usage (Units)"] * bau_data["Emission Factor (kg CO₂e/unit)"]
     bau_data["Annual Emissions (kg CO₂e)"] = bau_data["Daily Emissions (kg CO₂e)"] * 365
 
-     # ----------------------- Ensure BAU Graph Maintains Input Order -----------------------
-    
-    # Reorder bau_data to ensure default items come first, followed by custom items
+    # Ensure BAU Graph order
     default_items = [
         "Gas (kWh/day)", 
         "Electricity (kWh/day)", 
@@ -320,26 +302,19 @@ def main():
     ]
     custom_items = bau_data[~bau_data["Item"].isin(default_items)]
     bau_data_ordered = pd.concat([bau_data[bau_data["Item"].isin(default_items)], custom_items], ignore_index=True)
-
-    # Convert 'Item' to a categorical type to preserve order in the bar chart
     bau_data_ordered['Item'] = pd.Categorical(bau_data_ordered['Item'], categories=bau_data_ordered['Item'], ordered=True)
 
-    # Update session state with ordered data
-    st.session_state.bau_data = bau_data_ordered
-
-    # Display BAU summary
-    st.write("### BAU Results")
+    # BAU summary
     total_daily_bau = bau_data_ordered['Daily Emissions (kg CO₂e)'].sum()
     total_annual_bau = bau_data_ordered['Annual Emissions (kg CO₂e)'].sum()
 
+    st.write("### BAU Results")
     st.write(f"**Total Daily Emissions (BAU):** {total_daily_bau:.2f} kg CO₂e/day")
     st.write(f"**Total Annual Emissions (BAU):** {total_annual_bau:.2f} kg CO₂e/year")
 
-    # Visualize BAU emissions with preserved order
     st.bar_chart(bau_data_ordered.set_index("Item")["Daily Emissions (kg CO₂e)"], use_container_width=True)
 
-    # ----------------------- Describe Activities to Propose Scenarios -----------------------
-    
+    # ----------------------- Describe Activities and Suggest Scenarios -----------------------
     st.subheader("Describe Your Organization's Activities")
     st.write("Provide a brief description of your organization's key activities and sustainability goals to help propose relevant scenarios.")
 
@@ -348,56 +323,36 @@ def main():
         height=150,
         key="activities_description_input"
     )
-    
-    # ----------------------- Scenario Generation -----------------------
-    if activities_description.strip() != "":
-        st.success("Activities description received. You can now generate scenario suggestions based on this information.")
 
-        st.subheader("Generate Scenario Suggestions")
-        st.write("Click the button below to generate scenario suggestions based on your activities description.")
+    st.subheader("Scenario Suggestions (AI Generated)")
+    st.write("Click the button below to get suggestions for scenarios. Each click will produce 5 new suggestions. These are just suggestions and will not be included in calculations.")
 
-        if st.button("Generate 5 Scenarios"):
-            num_scenarios = 5  # Fixed number of scenarios
-            with st.spinner("Generating scenarios..."):
-                generated_scenarios = generate_scenarios(activities_description, num_scenarios)
-                if generated_scenarios:
-                    # Create a DataFrame for scenario descriptions
-                    scenario_desc_columns = ["Scenario", "Description"]
-                    scenario_desc_data = [[scenario['name'], scenario['description']] for scenario in generated_scenarios]
-                    scenario_desc_df = pd.DataFrame(scenario_desc_data, columns=scenario_desc_columns)
-                    
-                    # Append the new scenarios to the 'suggested_scenarios_df'
-                    st.session_state.suggested_scenarios_df = pd.concat(
-                        [st.session_state.suggested_scenarios_df, scenario_desc_df],
-                        ignore_index=True
-                    )
-                    st.success("5 scenarios generated successfully! You can now review and use them as needed.")
+    if st.button("Suggest 5 Scenarios"):
+        if activities_description.strip() == "":
+            st.error("Please provide an activities description first.")
+        else:
+            with st.spinner("Generating scenario suggestions..."):
+                new_scenarios = generate_scenarios(activities_description, bau_data_ordered, total_daily_bau, total_annual_bau)
+                if new_scenarios:
+                    # Append to existing suggestions
+                    new_df = pd.DataFrame(new_scenarios, columns=["name", "description"])
+                    new_df.columns = ["Title", "Description"]
+                    st.session_state.scenario_suggestions_df = pd.concat([st.session_state.scenario_suggestions_df, new_df], ignore_index=True)
+                    st.success("Scenarios suggested successfully!")
                 else:
-                    st.error("No scenarios were generated. Please try again or enter a more detailed description.")
-
-    # ----------------------- Display Suggested Scenarios -----------------------
-    st.subheader("Suggested Scenarios")
-    st.write("These scenarios are generated based on your description. You can choose to use them or ignore them as needed.")
-
-    if not st.session_state.suggested_scenarios_df.empty:
-        try:
-            st.dataframe(st.session_state.suggested_scenarios_df, use_container_width=True)
-        except Exception as e:
-            st.error(f"Error displaying suggested scenarios: {e}")
-    else:
-        st.info("No suggested scenarios generated yet. Click the 'Generate 5 Scenarios' button above.")
+                    st.error("No scenarios were generated. Please try again.")
+    
+    if not st.session_state.scenario_suggestions_df.empty:
+        st.write("### Suggested Scenarios")
+        st.dataframe(st.session_state.scenario_suggestions_df)
 
     # ----------------------- Scenario Planning -----------------------
-
     st.subheader("Scenario Planning (Editable Table)")
-
-    # Let users define scenarios manually based on their activities
     if activities_description.strip() != "":
         st.success("Activities description received. You can now define your scenarios based on this information.")
     else:
         st.info("Please describe your organization's activities to proceed with scenario planning.")
 
-    # Number of scenarios input
     num_scenarios = st.number_input(
         "How many scenarios do you want to add?",
         min_value=1,
@@ -406,111 +361,73 @@ def main():
         key="num_scenarios_input_2"
     )
 
-    # Create a DataFrame for scenario descriptions
     scenario_desc_columns = ["Scenario", "Description"]
     scenario_desc_data = [[f"Scenario {i+1}", ""] for i in range(int(num_scenarios))]
     scenario_desc_df = pd.DataFrame(scenario_desc_data, columns=scenario_desc_columns)
 
     st.write("Please describe each scenario. Double-click a cell to edit the description.")
-
-    # Editable table for scenario descriptions
     try:
         edited_scenario_desc_df = st.data_editor(scenario_desc_df, use_container_width=True, key="scenario_desc_editor")
     except AttributeError:
         edited_scenario_desc_df = st.experimental_data_editor(scenario_desc_df, use_container_width=True, key="scenario_desc_editor")
 
-    # Save edited scenario descriptions to session state
-    # If there are existing scenarios, concatenate
-    if not edited_scenario_desc_df.empty:
-        existing_scenarios = st.session_state.scenario_desc_df
-        new_scenarios = edited_scenario_desc_df.copy()
-        # Ensure unique scenario names
-        existing_names = existing_scenarios['Scenario'].tolist()
-        new_scenarios['Scenario'] = new_scenarios['Scenario'].apply(lambda x: get_unique_scenario_name(x, existing_names))
-        existing_scenarios = pd.concat([existing_scenarios, new_scenarios], ignore_index=True)
-        st.session_state.scenario_desc_df = existing_scenarios
-        st.success(f"Added {len(new_scenarios)} scenario(s) successfully!")
+    st.session_state['edited_scenario_desc_df'] = edited_scenario_desc_df
 
-    # Display all scenarios (only user-added scenarios)
-    st.subheader("All Scenarios")
-    st.write("Here are all your current scenarios with their descriptions.")
+    scenario_columns = ["Item"] + [f"{row['Scenario']} (%)" for index, row in edited_scenario_desc_df.iterrows()]
+    scenario_data = [[item] + [100.0]*int(num_scenarios) for item in bau_data["Item"]]
+    scenario_df = pd.DataFrame(scenario_data, columns=scenario_columns)
 
-    if not st.session_state.scenario_desc_df.empty:
-        try:
-            st.dataframe(st.session_state.scenario_desc_df, use_container_width=True)
-        except Exception as e:
-            st.error(f"Error displaying scenarios: {e}")
-    else:
-        st.info("No scenarios available. Please add scenarios above.")
+    st.write("""
+        Assign usage percentages to each scenario for each BAU item. These percentages are relative to the BAU.
+        - **90%** means using **10% less** of that item compared to BAU.
+        - **120%** means using **20% more** of that item compared to BAU.
+    """)
 
-    # Create a DataFrame with one column per scenario
-    if not st.session_state.scenario_desc_df.empty:
-        scenario_columns = ["Item"] + [f"{row['Scenario']} (%)" for index, row in st.session_state.scenario_desc_df.iterrows()]
-        scenario_data = [[item] + [100.0]*int(len(st.session_state.scenario_desc_df)) for item in bau_data_ordered["Item"]]
-        scenario_df = pd.DataFrame(scenario_data, columns=scenario_columns)
-    else:
-        st.warning("Please add at least one scenario to proceed with scenario planning.")
-        scenario_df = pd.DataFrame()
+    try:
+        edited_scenario_df = st.data_editor(scenario_df, use_container_width=True, key="scenario_percent_editor")
+    except AttributeError:
+        edited_scenario_df = st.experimental_data_editor(scenario_df, use_container_width=True, key="scenario_percent_editor")
 
-    if not scenario_df.empty:
-        st.write("""
-            Assign usage percentages to each scenario for each BAU item. These percentages are relative to the BAU.
-            - **90%** means using **10% less** of that item compared to BAU.
-            - **120%** means using **20% more** of that item compared to BAU.
-        """)
+    for col in edited_scenario_df.columns[1:]:
+        edited_scenario_df[col] = pd.to_numeric(edited_scenario_df[col], errors='coerce').fillna(100.0)
 
-        # Editable table for scenario percentages
-        try:
-            edited_scenario_df = st.data_editor(scenario_df, use_container_width=True, key="scenario_percent_editor")
-        except AttributeError:
-            edited_scenario_df = st.experimental_data_editor(scenario_df, use_container_width=True, key="scenario_percent_editor")
+    results = []
+    for col in edited_scenario_df.columns[1:]:
+        usage_percentages = edited_scenario_df[col].values / 100.0
+        scenario_daily_emissions = (bau_data["Daily Usage (Units)"].values 
+                                    * usage_percentages 
+                                    * bau_data["Emission Factor (kg CO₂e/unit)"].values).sum()
+        scenario_annual_emissions = scenario_daily_emissions * 365
+        co2_saving_kg = total_annual_bau - scenario_annual_emissions
+        co2_saving_percent = (co2_saving_kg / total_annual_bau * 100) if total_annual_bau != 0 else 0
 
-        # Convert columns (except Item) to numeric
-        for col in edited_scenario_df.columns[1:]:
-            edited_scenario_df[col] = pd.to_numeric(edited_scenario_df[col], errors='coerce').fillna(100.0)
+        results.append({
+            "Scenario": col.replace(" (%)",""), 
+            "Total Daily Emissions (kg CO₂e)": scenario_daily_emissions,
+            "Total Annual Emissions (kg CO₂e)": scenario_annual_emissions,
+            "CO₂ Saving (kg CO₂e/year)": co2_saving_kg,
+            "CO₂ Saving (%)": co2_saving_percent
+        })
 
-        # Calculate scenario emissions and savings
-        results = []
-        for col in edited_scenario_df.columns[1:]:
-            usage_percentages = edited_scenario_df[col].values / 100.0
-            scenario_daily_emissions = (bau_data_ordered["Daily Usage (Units)"].values 
-                                        * usage_percentages 
-                                        * bau_data_ordered["Emission Factor (kg CO₂e/unit)"].values).sum()
-            scenario_annual_emissions = scenario_daily_emissions * 365
-            co2_saving_kg = total_annual_bau - scenario_annual_emissions
-            co2_saving_percent = (co2_saving_kg / total_annual_bau * 100) if total_annual_bau != 0 else 0
+    results_df = pd.DataFrame(results)
+    results_df.index = range(1, len(results_df) + 1)
 
-            results.append({
-                "Scenario": col.replace(" (%)",""),  # Remove " (%)" from the scenario name
-                "Total Daily Emissions (kg CO₂e)": scenario_daily_emissions,
-                "Total Annual Emissions (kg CO₂e)": scenario_annual_emissions,
-                "CO₂ Saving (kg CO₂e/year)": co2_saving_kg,
-                "CO₂ Saving (%)": co2_saving_percent
-            })
+    st.write("### Scenario Results")
+    st.dataframe(results_df)
 
-        results_df = pd.DataFrame(results)
-        # Reindex the results to start from 1
-        results_df.index = range(1, len(results_df) + 1)
+    st.subheader("CO₂ Savings Compared to BAU (%)")
+    st.bar_chart(results_df.set_index("Scenario")["CO₂ Saving (%)"], use_container_width=True)
 
-        st.write("### Scenario Results")
-        st.dataframe(results_df)
-
-        st.subheader("CO₂ Savings Compared to BAU (%)")
-        st.bar_chart(results_df.set_index("Scenario")["CO₂ Saving (%)"], use_container_width=True)
-
-        # Option to download scenario results as CSV
-        st.download_button(
-            label="Download Scenario Results as CSV",
-            data=results_df.to_csv(index=False),
-            file_name="scenario_results.csv",
-            mime="text/csv"
-        )
+    st.download_button(
+        label="Download Scenario Results as CSV",
+        data=results_df.to_csv(index=False),
+        file_name="scenario_results.csv",
+        mime="text/csv"
+    )
 
     # ----------------------- Additional Criteria -----------------------
-    
     st.write("Apart from the environmental impact (e.g., CO₂ saved) calculated above, which of the following criteria are also important to your organisation? Please select all that apply and then assign values for each scenario.")
 
-    # Define scale-based criteria globally, including 'Other - Negative Trend'
     scale_criteria = {
         "Technical Feasibility", 
         "Supplier Reliability and Technology Readiness", 
@@ -523,10 +440,9 @@ def main():
         "Impact on Product Quality", 
         "Customer and Stakeholder Alignment",
         "Priority for our organisation",
-        "Other - Negative Trend"  # For inversion
+        "Other - Negative Trend"
     }
 
-    # Criteria options with brief, color-coded descriptions for the 1-10 scale criteria
     criteria_options = {
         "Technical Feasibility": "<span style='color:red;'>1-4: low feasibility</span>, <span style='color:orange;'>5-6: moderate</span>, <span style='color:green;'>7-10: high feasibility</span>",
         "Supplier Reliability and Technology Readiness": "<span style='color:red;'>1-4: unreliable/immature</span>, <span style='color:orange;'>5-6: mostly reliable</span>, <span style='color:green;'>7-10: highly reliable/mature</span>",
@@ -545,19 +461,16 @@ def main():
         "Other - Negative Trend": "Enter criteria where a higher number is less beneficial."
     }
 
-    # Let user select criteria
     selected_criteria = st.multiselect(
         "Select the criteria you want to consider:",
         list(criteria_options.keys()),
         key="selected_criteria_multiselect"
     )
 
-    # Allow adding multiple "Other" criteria with trend specification
     if any(crit.startswith("Other -") for crit in selected_criteria):
         other_trend_options = ["Other - Positive Trend", "Other - Negative Trend"]
         selected_other_trends = [crit for crit in selected_criteria if crit in other_trend_options]
         
-        # For each "Other" trend selected, allow adding multiple criteria
         for trend in selected_other_trends:
             st.write(f"### {trend}")
             num_other = st.number_input(
@@ -577,57 +490,64 @@ def main():
                     key=f"{trend.replace(' ', '_')}_desc_{i}"
                 )
                 if other_crit_name.strip() != "":
-                    # Add the new "Other" criteria to the criteria_options
                     criteria_options[other_crit_name.strip()] = other_crit_desc.strip() if other_crit_desc.strip() != "" else "No description provided."
 
-    # Show descriptions for selected criteria (with HTML enabled)
     for crit in selected_criteria:
         st.markdown(f"**{crit}:** {criteria_options[crit]}", unsafe_allow_html=True)
 
-    # ----------------------- Assign Criteria Values -----------------------
-    
     if selected_criteria:
         st.write("### Assign Criteria Values to Each Scenario")
         st.write("Double-click a cell to edit. For (1-10) criteria, only enter values between 1 and 10.")
 
-        # Create a DataFrame for criteria values
         criteria_columns = ["Scenario"] + selected_criteria
         criteria_data = []
-        for index, row in st.session_state.scenario_desc_df.iterrows():
+        for index, row in edited_scenario_desc_df.iterrows():
             scenario = row["Scenario"]
-            criteria_values = [scenario] + [1 for _ in selected_criteria]  # Initialize with 1
+            criteria_values = [scenario] + [1 for _ in selected_criteria]
             criteria_data.append(criteria_values)
         criteria_df = pd.DataFrame(criteria_data, columns=criteria_columns)
 
-        # Define column configurations
         column_config = {
             "Scenario": st.column_config.TextColumn(
                 "Scenario",
-                disabled=True  # Make Scenario column read-only
+                disabled=True
             )
+        }
+
+        scale_criteria = {
+            "Technical Feasibility", 
+            "Supplier Reliability and Technology Readiness", 
+            "Implementation Complexity",
+            "Scalability", 
+            "Maintenance Requirements", 
+            "Regulatory Compliance", 
+            "Risk for Workforce Safety",
+            "Risk for Operations", 
+            "Impact on Product Quality", 
+            "Customer and Stakeholder Alignment",
+            "Priority for our organisation",
+            "Other - Negative Trend"
         }
 
         for c in selected_criteria:
             if c in scale_criteria:
                 column_config[c] = st.column_config.NumberColumn(
                     label=c,
-                    format="%.0f",           # Ensures integer input
+                    format="%.0f",
                     min_value=1, 
                     max_value=10
                 )
             else:
                 column_config[c] = st.column_config.NumberColumn(
                     label=c
-                    # No additional constraints
                 )
 
-        # Editable table for criteria values with input constraints
         try:
             edited_criteria_df = st.data_editor(
                 criteria_df,
                 use_container_width=True,
                 key="criteria_editor_final",
-                num_rows="fixed",  # Fixed number of rows
+                num_rows="fixed",
                 disabled=False,
                 column_config=column_config,
                 hide_index=True
@@ -636,92 +556,76 @@ def main():
             st.error(f"Data Editor Error: {e}")
             st.stop()
         except AttributeError as e:
-            # Fallback for older Streamlit versions
             edited_criteria_df = st.experimental_data_editor(
                 criteria_df,
                 use_container_width=True,
                 key="criteria_editor_final",
-                num_rows="fixed",  # Fixed number of rows
+                num_rows="fixed",
                 disabled=False
             )
 
-        # Convert columns (except Scenario) to numeric and enforce constraints
         for col in edited_criteria_df.columns[1:]:
             edited_criteria_df[col] = pd.to_numeric(edited_criteria_df[col], errors='coerce').fillna(1.0)
             if col in scale_criteria:
                 edited_criteria_df[col] = edited_criteria_df[col].clip(lower=1.0, upper=10.0)
 
-        # Save edited criteria to session state
         st.session_state['edited_criteria_df'] = edited_criteria_df
 
-    # ----------------------- Run Model -----------------------
-    
-    # Only proceed if criteria were selected and edited_criteria_df is defined
     if selected_criteria and 'edited_criteria_df' in st.session_state and not st.session_state.edited_criteria_df.empty:
         if st.button("Run Model"):
-            # Check if all required values are filled
             if st.session_state.edited_criteria_df.isnull().values.any():
                 st.error("Please ensure all criteria values are filled.")
             else:
-                # Create a copy for scaled results
                 scaled_criteria_df = st.session_state.edited_criteria_df.copy()
-
-                # Define specific criteria to normalize (if any)
                 criteria_to_normalize = ["Return on Investment (ROI)(years)", "Initial investment (£)", "Other - Positive Trend", "Other - Negative Trend"]
 
-                # Now scale each criterion
                 for crit in criteria_to_normalize:
                     if crit in scaled_criteria_df.columns:
                         try:
                             values = scaled_criteria_df[crit].astype(float).values
                         except:
-                            scaled_criteria_df[crit] = 5  # Assign neutral score if conversion fails
+                            scaled_criteria_df[crit] = 5
                             values = scaled_criteria_df[crit].astype(float).values
 
                         min_val = np.min(values)
                         max_val = np.max(values)
 
                         if crit == "Other - Positive Trend":
-                            # Higher is better: scale to 10
                             if max_val == min_val:
-                                scaled_values = np.ones_like(values) * 10 if min_val != 0 else np.zeros_like(values)
+                                scaled_values = np.ones_like(values)*10 if min_val != 0 else np.zeros_like(values)
                             else:
-                                scaled_values = 1 + 9 * (values - min_val) / (max_val - min_val)
+                                scaled_values = 1 + 9*(values - min_val)/(max_val - min_val)
                             scaled_criteria_df[crit] = scaled_values
+
                         elif crit == "Other - Negative Trend":
-                            # Higher is worse: reverse scale
                             if max_val == min_val:
-                                scaled_values = np.ones_like(values) * 10 if min_val != 0 else np.zeros_like(values)
+                                scaled_values = np.ones_like(values)*10 if min_val != 0 else np.zeros_like(values)
                             else:
-                                scaled_values = 10 - 9 * (values - min_val) / (max_val - min_val)
+                                scaled_values = 10 - 9*(values - min_val)/(max_val - min_val)
                             scaled_criteria_df[crit] = scaled_values
+
                         elif crit == "Return on Investment (ROI)(years)":
-                            # Lower ROI is better: reverse scale
                             if max_val == min_val:
-                                scaled_values = np.ones_like(values) * 10 if min_val != 0 else np.zeros_like(values)
+                                scaled_values = np.ones_like(values)*10 if min_val != 0 else np.zeros_like(values)
                             else:
-                                scaled_values = 10 - 9 * (values - min_val) / (max_val - min_val)
+                                scaled_values = 10 - 9*(values - min_val)/(max_val - min_val)
                             scaled_criteria_df[crit] = scaled_values
+
                         elif crit == "Initial investment (£)":
-                            # Lower investment is better: reverse scale
                             if max_val == min_val:
-                                scaled_values = np.ones_like(values) * 10 if min_val != 0 else np.zeros_like(values)
+                                scaled_values = np.ones_like(values)*10 if min_val != 0 else np.zeros_like(values)
                             else:
-                                scaled_values = 10 - 9 * (values - min_val) / (max_val - min_val)
+                                scaled_values = 10 - 9*(values - min_val)/(max_val - min_val)
                             scaled_criteria_df[crit] = scaled_values
 
-                # Calculate the total score by summing all criteria
                 scaled_criteria_df['Total Score'] = scaled_criteria_df[selected_criteria].sum(axis=1)
-
-                # Normalize the total scores between 1 and 10
                 min_score = scaled_criteria_df['Total Score'].min()
                 max_score = scaled_criteria_df['Total Score'].max()
                 if max_score != min_score:
-                    scaled_criteria_df['Normalized Score'] = 1 + 9 * (scaled_criteria_df['Total Score'] - min_score) / (max_score - min_score)
+                    scaled_criteria_df['Normalized Score'] = 1 + 9*(scaled_criteria_df['Total Score'] - min_score)/(max_score - min_score)
                 else:
-                    scaled_criteria_df['Normalized Score'] = 5  # Assign a neutral score if all scores are equal
+                    scaled_criteria_df['Normalized Score'] = 5
 
-                # Assign colors based on normalized scores
                 def get_color(score):
                     if score >= 7:
                         return 'green'
@@ -731,14 +635,11 @@ def main():
                         return 'red'
 
                 scaled_criteria_df['Color'] = scaled_criteria_df['Normalized Score'].apply(get_color)
-
-                # Rank the scenarios based on Normalized Score
                 scaled_criteria_df['Rank'] = scaled_criteria_df['Normalized Score'].rank(method='min', ascending=False).astype(int)
 
                 st.write("### Normalized Results (All Criteria Scaled 1-10)")
                 st.dataframe(scaled_criteria_df.round(2))
 
-                # Visualize the normalized scores with color gradients using Altair
                 chart = alt.Chart(scaled_criteria_df).mark_bar().encode(
                     x=alt.X('Scenario:N', sort='-y'),
                     y='Normalized Score:Q',
@@ -756,13 +657,9 @@ def main():
 
                 st.altair_chart(chart, use_container_width=True)
 
-                # ----------------------- Enhanced Visualization -----------------------
-    
-                # Create a styled dataframe with ranking and color-coded cells
                 styled_display = scaled_criteria_df[['Scenario', 'Normalized Score', 'Rank']].copy()
                 styled_display = styled_display.sort_values('Rank')
 
-                # Apply color formatting based on 'Normalized Score'
                 def color_cell(score):
                     if score >= 7:
                         return 'background-color: green'
@@ -771,14 +668,10 @@ def main():
                     else:
                         return 'background-color: red'
 
-                # Style the 'Normalized Score' column
                 styled_display_style = styled_display.style.applymap(color_cell, subset=['Normalized Score'])
-
                 st.write("### Ranked Scenarios with Gradient Colors")
                 st.dataframe(styled_display_style)
 
-                # ----------------------- Highlight Top Scenario -----------------------
-    
                 top_scenario = scaled_criteria_df.loc[scaled_criteria_df['Rank'] == 1, 'Scenario'].values
                 if len(top_scenario) > 0:
                     st.success(f"The top-ranked scenario is **{top_scenario[0]}** with the highest carbon savings.")
