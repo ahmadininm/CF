@@ -21,7 +21,7 @@ def get_openai_version_importlib():
         return version
     except importlib.metadata.PackageNotFoundError:
         return "Package not found."
-
+# ----------------------- Test OpenAI Linkage -----------------------
 def test_openai_linkage():
     try:
         # Attempt a simple API call to test linkage
@@ -46,7 +46,7 @@ def test_openai_linkage():
         st.error(f"OpenAI API error: {e}")
     except Exception as e:
         st.error(f"Unexpected error: {e}")
-
+# ----------------------- Session State Management --------------------
 def save_session_state():
     """
     Serializes the necessary session state variables into a JSON-compatible dictionary.
@@ -98,7 +98,7 @@ def load_session_state(uploaded_file):
         st.success("Progress loaded successfully!")
     except Exception as e:
         st.error(f"Failed to load progress: {e}")
-
+# ----------------------- OpenAI Scenario Generation -------------------
 def generate_scenarios(description, bau_data, total_daily_bau, total_annual_bau):
     """
     Uses OpenAI's GPT model to generate scenario suggestions. Always generates 5 scenarios.
@@ -167,7 +167,7 @@ def generate_scenarios(description, bau_data, total_daily_bau, total_annual_bau)
     except Exception as e:
         st.error(f"Unexpected error: {e}")
         return []
-
+# ----------------------- Main Application -----------------------
 def main():
     # Set page configuration
     st.set_page_config(page_title="Sustainability Decision Assistant", layout="wide")
@@ -439,8 +439,8 @@ def main():
         "Risk for Operations", 
         "Impact on Product Quality", 
         "Customer and Stakeholder Alignment",
-        "Priority for our organisation",
-        "Other - Negative Trend"
+        "Priority for our organisation"
+
     }
 
     criteria_options = {
@@ -525,8 +525,8 @@ def main():
             "Risk for Operations", 
             "Impact on Product Quality", 
             "Customer and Stakeholder Alignment",
-            "Priority for our organisation",
-            "Other - Negative Trend"
+            "Priority for our organisation"
+
         }
 
         for c in selected_criteria:
