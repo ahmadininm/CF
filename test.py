@@ -204,6 +204,7 @@ def main():
 
         name = st.text_input("Name:")
         company = st.text_input("Company Name:")
+        st.write("If you provide your email, you will receive a copy of the report via email.")
         email = st.text_input("Email Address (optional):")
 
         st.write("**Terms and Conditions**")
@@ -213,8 +214,15 @@ def main():
         
         agree_terms = st.checkbox("I agree to the Terms and Conditions")
 
-        if (name.strip() != "") and (company.strip() != "") and agree_terms:
-            if st.button("Proceed"):
+        proceed_clicked = st.button("Proceed")
+
+        if proceed_clicked:
+            if name.strip() == "" or company.strip() == "":
+                st.warning("Please provide both your Name and Company Name to proceed.")
+            elif not agree_terms:
+                st.warning("You must agree to the Terms and Conditions to proceed.")
+            else:
+                # All conditions met
                 st.session_state.user_authenticated = True
                 st.session_state.user_name = name
                 st.session_state.user_company = company
