@@ -259,33 +259,29 @@ def main():
             key=f"bau_usage_{i}"
         )
     
-    # Option to add custom items
-    st.subheader("Add Custom Items (Optional)")
-    st.write("If there are any additional sources of emissions not accounted for above, you can add them here.")
-    if st.checkbox("Add custom items?"):
-        num_custom_items = st.number_input("How many custom items would you like to add?", min_value=1, step=1, value=1)
-        for i in range(num_custom_items):
-            item_name = st.text_input(f"Custom Item {i + 1} Name:", key=f"custom_item_name_{i}")
-            emission_factor = st.number_input(
-                f"Custom Item {i + 1} Emission Factor (kg CO₂e/unit):", 
-                min_value=0.0000001, 
-                step=0.0000001, 
-                value=0.0000001,
-                key=f"custom_emission_factor_{i}"
-            )
-            usage = st.number_input(
-                f"Custom Item {i + 1} Daily Usage (Units):", 
-                min_value=0.0, 
-                step=0.1, 
-                value=0.0,
-                key=f"custom_usage_{i}"
-            )
-            new_row = pd.DataFrame({"Item": [item_name], "Daily Usage (Units)": [usage]})
-            bau_data = pd.concat([bau_data, new_row], ignore_index=True)
-            emission_factors[item_name] = emission_factor
+ # Option to add custom items
+st.subheader("Add Custom Items (Optional)")
+if st.checkbox("Add custom items?"):
+    custom_items = []
+    custom_emission_factors = []
+    custom_usages = []
 
-    # Fill missing emission factors in the DataFrame
-    bau_data["Emission Factor (kg CO₂e/unit)"] = bau_data["Item"].map(emission_factors).fillna(0)
+    num_custom_items = st.number_input("How many custom items would you like to add?", min_value=1, step=1, value=1)
+    for i in range(num_custom_items):
+        item_name = st.text_input(f"Custom Item {i + 1} Name:")
+        emission_factor = st.number_input(f"Custom Item {i + 1} Emission Factor (kg CO2e/unit):", min_value=0.0, step=0.01)
+        usage = st.number_input(f"Custom Item {i + 1} Daily Usage (Units):", min_value=0.0, step=0.1)
+        custom_items.append(item_name)
+        custom_emission_factors.append(emission_factor)
+        custom_usages.append(usage)
+
+    # Add custom items to the DataFrame
+    for i in range(len(custom_items)):
+        bau_data = pd.concat(
+            [bau_data, pd.DataFrame({"Item": [custom_items[i]], "Daily Usage (Units)": [custom_usages[i]]})],
+            ignore_index=True
+        )
+        emission_factors[custom_items[i]] = custom_emission_factors[i]
 
     # Calculate emissions for BAU
     bau_data["Daily Emissions (kg CO₂e)"] = bau_data["Daily Usage (Units)"] * bau_data["Emission Factor (kg CO₂e/unit)"]
