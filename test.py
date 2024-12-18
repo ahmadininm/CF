@@ -259,14 +259,13 @@ def main():
                 "Helium (m³/day)"
             ]
             emission_factors = {
-                "Gas (kWh/day)": 0.182928926,         # kg CO₂e/kWh
-                "Electricity (kWh/day)": 0.207074289, # kg CO₂e/kWh
-                "Nitrogen (m³/day)": 0.090638487,     # kg CO₂e/m³
-                "Hydrogen (m³/day)": 1.07856,         # kg CO₂e/m³
-                "Argon (m³/day)": 6.342950515,        # kg CO₂e/m³
-                "Helium (m³/day)": 0.660501982        # kg CO₂e/m³
-            ]
-            # Default daily cost = 0, user will input
+                "Gas (kWh/day)": 0.182928926,
+                "Electricity (kWh/day)": 0.207074289,
+                "Nitrogen (m³/day)": 0.090638487,
+                "Hydrogen (m³/day)": 1.07856,
+                "Argon (m³/day)": 6.342950515,
+                "Helium (m³/day)": 0.660501982
+            }
             st.session_state.bau_data = pd.DataFrame({
                 "Item": default_items,
                 "Daily Usage (Units)": [0.0] * len(default_items),
@@ -298,10 +297,8 @@ def main():
         bau_data = st.session_state.bau_data
         emission_factors = st.session_state.emission_factors
 
-        # For each default item, ask for daily usage and daily cost
         for i in range(len(bau_data)):
             item_name = bau_data.loc[i, "Item"]
-            # Daily usage
             bau_data.loc[i, "Daily Usage (Units)"] = st.number_input(
                 f"{item_name} - Daily Usage:",
                 min_value=0.0,
@@ -309,7 +306,6 @@ def main():
                 value=bau_data.loc[i, "Daily Usage (Units)"],
                 key=f"bau_usage_{i}"
             )
-            # Daily cost
             bau_data.loc[i, "Daily Cost (£/day)"] = st.number_input(
                 f"{item_name} - Daily Cost (£/day):",
                 min_value=0.0,
@@ -360,7 +356,6 @@ def main():
                 )
                 custom_item_data.append((c_item_name, c_unit, c_usage, c_cost))
 
-        # Button to get emission factors and add items
         if add_custom and st.button("Get Emission Factors for Custom Items"):
             custom_factors = []
             for (item_name, unit, usage, cost) in custom_item_data:
@@ -368,16 +363,13 @@ def main():
                     st.error("Please provide a name for all custom items.")
                     st.stop()
                 
-                # Get emission factor from OpenAI
                 factor = get_emission_factor_from_openai(item_name, unit)
                 custom_factors.append((item_name, unit, usage, cost, factor))
             
-            # Display retrieved emission factors
             st.write("### Retrieved Emission Factors for Custom Items")
             custom_factors_df = pd.DataFrame(custom_factors, columns=["Item", "Unit", "Daily Usage (Units)", "Daily Cost (£/day)", "Emission Factor (kg CO₂e/unit)"])
             st.dataframe(custom_factors_df)
 
-            # Add custom items to bau_data and emission_factors
             for (item_name, unit, usage, cost, factor) in custom_factors:
                 new_row = pd.DataFrame({
                     "Item": [item_name],
@@ -390,17 +382,14 @@ def main():
 
             st.success("Custom items added and emission factors retrieved!")
 
-        # Recalculate emissions now that we may have custom items
         bau_data = st.session_state.bau_data
         bau_data["Emission Factor (kg CO₂e/unit)"] = bau_data["Item"].map(st.session_state.emission_factors).fillna(0)
 
         bau_data["Daily Emissions (kg CO₂e)"] = bau_data["Daily Usage (Units)"] * bau_data["Emission Factor (kg CO₂e/unit)"]
         bau_data["Annual Emissions (kg CO₂e)"] = bau_data["Daily Emissions (kg CO₂e)"] * 365
 
-        # Costs are already provided on a daily basis
         bau_data["Annual Cost (£/year)"] = bau_data["Daily Cost (£/day)"] * 365
 
-        # Display a summary table of all items including custom ones
         st.write("### BAU Items Summary (After Adding Custom Items)")
         st.dataframe(bau_data)
 
@@ -416,15 +405,12 @@ def main():
         st.write(f"**Total Daily Operational Cost (BAU):** £{total_daily_cost:.2f}/day")
         st.write(f"**Total Annual Operational Cost (BAU):** £{total_annual_cost:.2f}/year")
 
-        # BAU Emissions chart
         st.write("### BAU Daily Emissions by Item")
         st.bar_chart(bau_data.set_index("Item")["Daily Emissions (kg CO₂e)"], use_container_width=True)
 
-        # BAU Cost chart
         st.write("### BAU Daily Costs by Item")
         st.bar_chart(bau_data.set_index("Item")["Daily Cost (£/day)"], use_container_width=True)
 
-        # ----------------------- Describe Activities and Suggest Scenarios -----------------------
         st.subheader("Describe Your Organization's Activities")
         st.write("Provide a brief description of your organization's key activities and sustainability goals to help propose relevant scenarios.")
 
@@ -435,7 +421,7 @@ def main():
         )
 
         st.subheader("Scenario Suggestions (AI Generated)")
-        st.write("Click the button below to get suggestions for scenarios. Each click will produce 5 new suggestions. These are just suggestions and will not be included in calculations.")
+        st.write("Click the button below to get suggestions for scenarios.")
 
         if st.button("Suggest 5 Scenarios"):
             if activities_description.strip() == "":
@@ -455,12 +441,11 @@ def main():
             st.write("### Suggested Scenarios")
             st.dataframe(st.session_state.scenario_suggestions_df)
 
-        # ----------------------- Scenario Planning -----------------------
         st.subheader("Scenario Planning (Editable Table)")
         if activities_description.strip() != "":
-            st.success("Activities description received. You can now define your scenarios based on this information.")
+            st.success("Activities description received. You can now define your scenarios.")
         else:
-            st.info("Please describe your organization's activities to proceed with scenario planning.")
+            st.info("Please describe your organization's activities first.")
 
         num_scenarios = st.number_input(
             "How many scenarios do you want to add?",
@@ -474,7 +459,7 @@ def main():
         scenario_desc_data = [[f"Scenario {i+1}", ""] for i in range(int(num_scenarios))]
         scenario_desc_df = pd.DataFrame(scenario_desc_data, columns=scenario_desc_columns)
 
-        st.write("Please describe each scenario. Double-click a cell to edit the description.")
+        st.write("Please describe each scenario. Double-click a cell to edit.")
         try:
             edited_scenario_desc_df = st.data_editor(scenario_desc_df, use_container_width=True, key="scenario_desc_editor")
         except AttributeError:
@@ -487,9 +472,10 @@ def main():
         scenario_df = pd.DataFrame(scenario_data, columns=scenario_columns)
 
         st.write("""
-            Assign usage percentages to each scenario for each BAU item. These percentages are relative to the BAU.
-            - **90%** means using **10% less** of that item compared to BAU.
-            - **120%** means using **20% more** of that item compared to BAU.
+            Assign usage percentages to each scenario for each BAU item.
+            For example:
+            - 90% means using 10% less than BAU.
+            - 120% means using 20% more than BAU.
         """)
 
         try:
@@ -508,7 +494,6 @@ def main():
                                         * bau_data["Emission Factor (kg CO₂e/unit)"].values).sum()
             scenario_annual_emissions = scenario_daily_emissions * 365
 
-            # Since cost was given per day at BAU, scale cost by usage percentage
             scenario_daily_cost = (bau_data["Daily Cost (£/day)"].values * usage_percentages).sum()
             scenario_annual_cost = scenario_daily_cost * 365
 
@@ -549,8 +534,7 @@ def main():
             mime="text/csv"
         )
 
-        # ----------------------- Additional Criteria -----------------------
-        st.write("Apart from the environmental impact and cost savings calculated above, which of the following criteria are also important to your organisation?")
+        st.write("Select additional criteria important to your organisation:")
         scale_criteria = {
             "Technical Feasibility", 
             "Supplier Reliability and Technology Readiness", 
@@ -589,7 +573,6 @@ def main():
             key="selected_criteria_multiselect"
         )
 
-        # Handling "Other" criteria
         if any(crit.startswith("Other -") for crit in selected_criteria):
             other_trend_options = ["Other - Positive Trend", "Other - Negative Trend"]
             selected_other_trends = [crit for crit in selected_criteria if crit in other_trend_options]
@@ -620,7 +603,7 @@ def main():
 
         if selected_criteria:
             st.write("### Assign Criteria Values to Each Scenario")
-            st.write("Double-click a cell to edit. For (1-10) criteria, only enter values between 1 and 10 where applicable.")
+            st.write("For (1-10) criteria, enter values between 1 and 10.")
 
             criteria_columns = ["Scenario"] + selected_criteria
             criteria_data = []
@@ -788,11 +771,9 @@ def main():
                     if len(top_scenario) > 0:
                         st.success(f"The top-ranked scenario is **{top_scenario[0]}** with the highest overall score.")
                     
-                    # ----------------------- Report Generation and Cloud Storage -----------------------
                     st.write("### Generate Report")
                     st.write("Below is a summary of your inputs and results.")
 
-                    # Simple report text
                     report_text = f"""
                     Name: {st.session_state.user_name}
                     Company: {st.session_state.user_company}
@@ -805,14 +786,11 @@ def main():
 
                     st.text_area("Report Summary:", report_text, height=200)
 
-                    # Button to "send" report via email if email provided
                     if st.session_state.user_email.strip() != "":
                         if st.button("Send report via email"):
-                            # Placeholder for sending email
                             st.success(f"Report sent to {st.session_state.user_email} (Placeholder)")
 
                     if st.button("Store data and report in the cloud"):
-                        # Placeholder for cloud storage
                         st.success("Data and report stored in the cloud (Placeholder)")
 
 if __name__ == "__main__":
