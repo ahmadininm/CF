@@ -8,7 +8,6 @@ from io import BytesIO
 import openai  # For OpenAI API integration
 import importlib.metadata
 
-# Import specific exceptions from openai.error instead of openai
 from openai.error import InvalidRequestError, AuthenticationError, RateLimitError, OpenAIError
 
 # ----------------------- OpenAI Configuration -----------------------
@@ -21,7 +20,7 @@ def get_openai_version_importlib():
         return version
     except importlib.metadata.PackageNotFoundError:
         return "Package not found."
-# ----------------------- Test OpenAI Linkage -----------------------
+
 def test_openai_linkage():
     try:
         # Attempt a simple API call to test linkage
@@ -46,12 +45,10 @@ def test_openai_linkage():
         st.error(f"OpenAI API error: {e}")
     except Exception as e:
         st.error(f"Unexpected error: {e}")
-# ----------------------- Session State Management --------------------
+
 def save_session_state():
     """
     Serializes the necessary session state variables into a JSON-compatible dictionary.
-    Returns:
-        dict: Serialized session state.
     """
     state = {
         'bau_data': st.session_state.get('bau_data').to_json(),
@@ -65,16 +62,15 @@ def save_session_state():
 def load_session_state(uploaded_file):
     """
     Deserializes the uploaded JSON file and updates the session state variables.
-    Args:
-        uploaded_file (BytesIO): Uploaded JSON file.
     """
     try:
         data = json.load(uploaded_file)
         
         # Load BAU Data
         bau_data_loaded = pd.read_json(data['bau_data'])
-        # Ensure 'Daily Usage (Units)' is float
+        # Ensure numeric
         bau_data_loaded['Daily Usage (Units)'] = pd.to_numeric(bau_data_loaded['Daily Usage (Units)'], errors='coerce').fillna(0.0)
+        bau_data_loaded['Cost per Unit (£/unit)'] = pd.to_numeric(bau_data_loaded['Cost per Unit (£/unit)'], errors='coerce').fillna(0.0)
         st.session_state.bau_data = bau_data_loaded
         
         # Load Emission Factors
@@ -90,7 +86,6 @@ def load_session_state(uploaded_file):
         # Load Criteria Values if available
         if data['edited_criteria_df']:
             criteria_values_loaded = pd.read_json(data['edited_criteria_df'])
-            # Ensure all numeric criteria are float
             numeric_cols = criteria_values_loaded.columns.drop('Scenario')
             criteria_values_loaded[numeric_cols] = criteria_values_loaded[numeric_cols].apply(pd.to_numeric, errors='coerce').fillna(1.0)
             st.session_state.edited_criteria_df = criteria_values_loaded
@@ -98,15 +93,11 @@ def load_session_state(uploaded_file):
         st.success("Progress loaded successfully!")
     except Exception as e:
         st.error(f"Failed to load progress: {e}")
-# ----------------------- OpenAI Scenario Generation -------------------
+
 def generate_scenarios(description, bau_data, total_daily_bau, total_annual_bau):
     """
-    Uses OpenAI's GPT model to generate scenario suggestions. Always generates 5 scenarios.
-    We incorporate the BAU data and emissions to provide more context.
-    The scenarios should be returned as a list of dicts with 'name' and 'description'.
+    Uses OpenAI's GPT model to generate scenario suggestions.
     """
-    
-    # Extract items and usage info to provide to the model
     items_info = "\n".join([f"- {row['Item']}: {row['Daily Usage (Units)']} units/day, Emission Factor: {row['Emission Factor (kg CO₂e/unit)']:.4f}, Daily Emissions: {row['Daily Emissions (kg CO₂e)']:.2f}" for _, row in bau_data.iterrows()])
     
     prompt = (
@@ -144,7 +135,6 @@ def generate_scenarios(description, bau_data, total_daily_bau, total_annual_bau)
         for line in scenarios_text:
             line_stripped = line.strip()
             if line_stripped.startswith("Title:"):
-                # If we already have a current title and description, save it first
                 if current_title and current_desc:
                     scenarios.append({"name": current_title, "description": " ".join(current_desc)})
                 current_title = line_stripped.replace("Title:", "").strip()
@@ -156,7 +146,6 @@ def generate_scenarios(description, bau_data, total_daily_bau, total_annual_bau)
                 if current_desc is not None and line_stripped != "":
                     current_desc.append(line_stripped)
         
-        # Add the last scenario if there's one pending
         if current_title and current_desc:
             scenarios.append({"name": current_title, "description": " ".join(current_desc)})
         
@@ -167,7 +156,36 @@ def generate_scenarios(description, bau_data, total_daily_bau, total_annual_bau)
     except Exception as e:
         st.error(f"Unexpected error: {e}")
         return []
-# ----------------------- Main Application -----------------------
+
+def get_emission_factor_from_openai(item_name, unit):
+    """
+    Queries OpenAI to estimate the emission factor (kg CO₂e per chosen unit) for the given item.
+    """
+    prompt = (
+        f"Provide an estimate of the emission factor for '{item_name}' in units of kg CO₂e per {unit}. "
+        f"Respond with only a numeric value. If unsure, provide a best guess."
+    )
+
+    try:
+        response = openai.ChatCompletion.create(
+            model="gpt-3.5-turbo",
+            messages=[
+                {"role": "system", "content": "You are a sustainability expert."},
+                {"role": "user", "content": prompt}
+            ],
+            max_tokens=50,
+            temperature=0.7,
+        )
+        content = response.choices[0].message.content.strip()
+        # Attempt to parse a float
+        value = float("".join([c for c in content if c in "0123456789.-"]))
+        if np.isnan(value):
+            value = 0.0
+        return value
+    except:
+        # If any error, return 0 as fallback
+        return 0.0
+
 def main():
     # Set page configuration
     st.set_page_config(page_title="Sustainability Decision Assistant", layout="wide")
@@ -223,10 +241,12 @@ def main():
         }
         st.session_state.bau_data = pd.DataFrame({
             "Item": default_items,
-            "Daily Usage (Units)": [0.0] * len(default_items)
+            "Daily Usage (Units)": [0.0] * len(default_items),
+            "Cost per Unit (£/unit)": [0.0] * len(default_items),
+            "Unit": [i.split("(")[-1].replace(")","") for i in default_items] # Extracting unit from item name
         })
         st.session_state.emission_factors = emission_factors.copy()
-    
+
     if 'scenario_desc_df' not in st.session_state:
         st.session_state.scenario_desc_df = pd.DataFrame(columns=["Scenario", "Description"])
     
@@ -246,69 +266,121 @@ def main():
         st.session_state.scenario_suggestions_df = pd.DataFrame(columns=["Title", "Description"])
 
     # ----------------------- BAU Inputs -----------------------
-    st.subheader("Enter Daily Usage for Business As Usual (BAU)")
+    st.subheader("Enter Daily Usage and Costs for Business As Usual (BAU)")
     bau_data = st.session_state.bau_data
     emission_factors = st.session_state.emission_factors
 
+    # For each default item, ask for daily usage and cost per unit
     for i in range(len(bau_data)):
+        item_name = bau_data.loc[i, "Item"]
+        # Daily usage
         bau_data.loc[i, "Daily Usage (Units)"] = st.number_input(
-            f"{bau_data['Item'][i]}:",
+            f"{item_name} - Daily Usage:",
             min_value=0.0,
             step=0.1,
             value=bau_data.loc[i, "Daily Usage (Units)"],
             key=f"bau_usage_{i}"
         )
-    
- # Option to add custom items
-st.subheader("Add Custom Items (Optional)")
-if st.checkbox("Add custom items?"):
-    custom_items = []
-    custom_emission_factors = []
-    custom_usages = []
-
-    num_custom_items = st.number_input("How many custom items would you like to add?", min_value=1, step=1, value=1)
-    for i in range(num_custom_items):
-        item_name = st.text_input(f"Custom Item {i + 1} Name:")
-        emission_factor = st.number_input(f"Custom Item {i + 1} Emission Factor (kg CO2e/unit):", min_value=0.0, step=0.01)
-        usage = st.number_input(f"Custom Item {i + 1} Daily Usage (Units):", min_value=0.0, step=0.1)
-        custom_items.append(item_name)
-        custom_emission_factors.append(emission_factor)
-        custom_usages.append(usage)
-
-    # Add custom items to the DataFrame
-    for i in range(len(custom_items)):
-        bau_data = pd.concat(
-            [bau_data, pd.DataFrame({"Item": [custom_items[i]], "Daily Usage (Units)": [custom_usages[i]]})],
-            ignore_index=True
+        # Cost per Unit
+        bau_data.loc[i, "Cost per Unit (£/unit)"] = st.number_input(
+            f"{item_name} - Cost per Unit (£/unit):",
+            min_value=0.0,
+            step=0.1,
+            value=bau_data.loc[i, "Cost per Unit (£/unit)"],
+            key=f"bau_cost_{i}"
         )
-        emission_factors[custom_items[i]] = custom_emission_factors[i]
 
-    # Calculate emissions for BAU
+    # Option to add custom items
+    st.subheader("Add Custom Items (Optional)")
+    st.write("If there are any additional sources of emissions not accounted for above, you can add them here.")
+
+    add_custom = st.checkbox("Add custom items?")
+    custom_items_final = []
+    units_options = [
+        "Kilograms (kg)",
+        "Grams (g)",
+        "Tonnes (t)",
+        "Litres (L)",
+        "Cubic metres (m³)",
+        "Kilowatt-hours (kWh)",
+        "Megajoules (MJ)",
+        "Gigajoules (GJ)",
+        "Therms",
+        "Kilometres (km)",
+        "Passenger-km",
+        "freight tonne-km"
+    ]
+
+    if add_custom:
+        num_custom_items = st.number_input("How many custom items would you like to add?", min_value=1, step=1, value=1, key="num_custom_items")
+        custom_item_data = []
+        for i in range(num_custom_items):
+            c_item_name = st.text_input(f"Custom Item {i + 1} Name:", key=f"custom_item_name_{i}")
+            c_unit = st.selectbox(f"Custom Item {i + 1} Unit:", options=units_options, key=f"custom_item_unit_{i}")
+            c_usage = st.number_input(
+                f"Custom Item {i + 1} Daily Usage (Units):", 
+                min_value=0.0, 
+                step=0.1, 
+                value=0.0,
+                key=f"custom_usage_{i}"
+            )
+            c_cost = st.number_input(
+                f"Custom Item {i + 1} Cost per Unit (£/unit):",
+                min_value=0.0,
+                step=0.1,
+                value=0.0,
+                key=f"custom_cost_{i}"
+            )
+            custom_item_data.append((c_item_name, c_unit, c_usage, c_cost))
+
+        # Once the user is done, we can fetch their emission factors from the API
+        if st.button("Get Emission Factors for Custom Items"):
+            for (item_name, unit, usage, cost) in custom_item_data:
+                if item_name.strip() == "":
+                    st.error("Please provide a name for all custom items.")
+                    st.stop()
+                
+                # Get emission factor from OpenAI
+                factor = get_emission_factor_from_openai(item_name, unit)
+                st.session_state.bau_data = pd.concat([
+                    st.session_state.bau_data,
+                    pd.DataFrame({
+                        "Item": [item_name],
+                        "Daily Usage (Units)": [usage],
+                        "Cost per Unit (£/unit)": [cost],
+                        "Unit": [unit]
+                    })
+                ], ignore_index=True)
+                st.session_state.emission_factors[item_name] = factor
+            st.success("Custom items added and emission factors retrieved!")
+
+    # Ensure emission factor column
+    bau_data["Emission Factor (kg CO₂e/unit)"] = bau_data["Item"].map(st.session_state.emission_factors).fillna(0)
+
+    # Calculate emissions and costs for BAU
     bau_data["Daily Emissions (kg CO₂e)"] = bau_data["Daily Usage (Units)"] * bau_data["Emission Factor (kg CO₂e/unit)"]
     bau_data["Annual Emissions (kg CO₂e)"] = bau_data["Daily Emissions (kg CO₂e)"] * 365
 
-    # Ensure BAU Graph order
-    default_items = [
-        "Gas (kWh/day)", 
-        "Electricity (kWh/day)", 
-        "Nitrogen (m³/day)", 
-        "Hydrogen (m³/day)", 
-        "Argon (m³/day)", 
-        "Helium (m³/day)"
-    ]
-    custom_items = bau_data[~bau_data["Item"].isin(default_items)]
-    bau_data_ordered = pd.concat([bau_data[bau_data["Item"].isin(default_items)], custom_items], ignore_index=True)
-    bau_data_ordered['Item'] = pd.Categorical(bau_data_ordered['Item'], categories=bau_data_ordered['Item'], ordered=True)
+    bau_data["Daily Cost (£/day)"] = bau_data["Daily Usage (Units)"] * bau_data["Cost per Unit (£/unit)"]
+    bau_data["Annual Cost (£/year)"] = bau_data["Daily Cost (£/day)"] * 365
 
-    # BAU summary
-    total_daily_bau = bau_data_ordered['Daily Emissions (kg CO₂e)'].sum()
-    total_annual_bau = bau_data_ordered['Annual Emissions (kg CO₂e)'].sum()
+    # Display a summary table of all items including custom ones
+    st.write("### BAU Items Summary (After Adding Custom Items)")
+    st.dataframe(bau_data)
+
+    total_daily_bau = bau_data['Daily Emissions (kg CO₂e)'].sum()
+    total_annual_bau = bau_data['Annual Emissions (kg CO₂e)'].sum()
+
+    total_daily_cost = bau_data['Daily Cost (£/day)'].sum()
+    total_annual_cost = bau_data['Annual Cost (£/year)'].sum()
 
     st.write("### BAU Results")
     st.write(f"**Total Daily Emissions (BAU):** {total_daily_bau:.2f} kg CO₂e/day")
     st.write(f"**Total Annual Emissions (BAU):** {total_annual_bau:.2f} kg CO₂e/year")
+    st.write(f"**Total Daily Operational Cost (BAU):** £{total_daily_cost:.2f}/day")
+    st.write(f"**Total Annual Operational Cost (BAU):** £{total_annual_cost:.2f}/year")
 
-    st.bar_chart(bau_data_ordered.set_index("Item")["Daily Emissions (kg CO₂e)"], use_container_width=True)
+    st.bar_chart(bau_data.set_index("Item")["Daily Emissions (kg CO₂e)"], use_container_width=True)
 
     # ----------------------- Describe Activities and Suggest Scenarios -----------------------
     st.subheader("Describe Your Organization's Activities")
@@ -328,9 +400,8 @@ if st.checkbox("Add custom items?"):
             st.error("Please provide an activities description first.")
         else:
             with st.spinner("Generating scenario suggestions..."):
-                new_scenarios = generate_scenarios(activities_description, bau_data_ordered, total_daily_bau, total_annual_bau)
+                new_scenarios = generate_scenarios(activities_description, bau_data, total_daily_bau, total_annual_bau)
                 if new_scenarios:
-                    # Append to existing suggestions
                     new_df = pd.DataFrame(new_scenarios, columns=["name", "description"])
                     new_df.columns = ["Title", "Description"]
                     st.session_state.scenario_suggestions_df = pd.concat([st.session_state.scenario_suggestions_df, new_df], ignore_index=True)
@@ -394,15 +465,28 @@ if st.checkbox("Add custom items?"):
                                     * usage_percentages 
                                     * bau_data["Emission Factor (kg CO₂e/unit)"].values).sum()
         scenario_annual_emissions = scenario_daily_emissions * 365
+
+        scenario_daily_cost = (bau_data["Daily Usage (Units)"].values
+                               * usage_percentages
+                               * bau_data["Cost per Unit (£/unit)"].values).sum()
+        scenario_annual_cost = scenario_daily_cost * 365
+
         co2_saving_kg = total_annual_bau - scenario_annual_emissions
         co2_saving_percent = (co2_saving_kg / total_annual_bau * 100) if total_annual_bau != 0 else 0
+
+        cost_saving = total_annual_cost - scenario_annual_cost
+        cost_saving_percent = (cost_saving / total_annual_cost * 100) if total_annual_cost != 0 else 0
 
         results.append({
             "Scenario": col.replace(" (%)",""), 
             "Total Daily Emissions (kg CO₂e)": scenario_daily_emissions,
             "Total Annual Emissions (kg CO₂e)": scenario_annual_emissions,
             "CO₂ Saving (kg CO₂e/year)": co2_saving_kg,
-            "CO₂ Saving (%)": co2_saving_percent
+            "CO₂ Saving (%)": co2_saving_percent,
+            "Daily Cost (£/day)": scenario_daily_cost,
+            "Annual Cost (£/year)": scenario_annual_cost,
+            "Annual Cost Saving (£/year)": cost_saving,
+            "Cost Saving (%)": cost_saving_percent
         })
 
     results_df = pd.DataFrame(results)
@@ -422,8 +506,7 @@ if st.checkbox("Add custom items?"):
     )
 
     # ----------------------- Additional Criteria -----------------------
-    st.write("Apart from the environmental impact (e.g., CO₂ saved) calculated above, which of the following criteria are also important to your organisation? Please select all that apply and then assign values for each scenario.")
-
+    st.write("Apart from the environmental impact (e.g., CO₂ saved) and cost savings calculated above, which of the following criteria are also important to your organisation?")
     scale_criteria = {
         "Technical Feasibility", 
         "Supplier Reliability and Technology Readiness", 
@@ -436,25 +519,24 @@ if st.checkbox("Add custom items?"):
         "Impact on Product Quality", 
         "Customer and Stakeholder Alignment",
         "Priority for our organisation"
-
     }
 
     criteria_options = {
-        "Technical Feasibility": "<span style='color:red;'>1-4: low feasibility</span>, <span style='color:orange;'>5-6: moderate</span>, <span style='color:green;'>7-10: high feasibility</span>",
-        "Supplier Reliability and Technology Readiness": "<span style='color:red;'>1-4: unreliable/immature</span>, <span style='color:orange;'>5-6: mostly reliable</span>, <span style='color:green;'>7-10: highly reliable/mature</span>",
-        "Implementation Complexity": "<span style='color:red;'>1-4: very complex</span>, <span style='color:orange;'>5-6: moderate complexity</span>, <span style='color:green;'>7-10: easy to implement</span>",
-        "Scalability": "<span style='color:red;'>1-4: hard to scale</span>, <span style='color:orange;'>5-6: moderate</span>, <span style='color:green;'>7-10: easy to scale</span>",
-        "Maintenance Requirements": "<span style='color:red;'>1-4: high maintenance</span>, <span style='color:orange;'>5-6: moderate</span>, <span style='color:green;'>7-10: low maintenance</span>",
-        "Regulatory Compliance": "<span style='color:red;'>1-4: risk of non-compliance</span>, <span style='color:orange;'>5-6: mostly compliant</span>, <span style='color:green;'>7-10: fully compliant</span>",
-        "Risk for Workforce Safety": "<span style='color:red;'>1-4: significant safety risks</span>, <span style='color:orange;'>5-6: moderate risks</span>, <span style='color:green;'>7-10: very low risk</span>",
-        "Risk for Operations": "<span style='color:red;'>1-4: high operational risk</span>, <span style='color:orange;'>5-6: moderate risk</span>, <span style='color:green;'>7-10: minimal risk</span>",
-        "Impact on Product Quality": "<span style='color:red;'>1-4: reduces quality</span>, <span style='color:orange;'>5-6: acceptable</span>, <span style='color:green;'>7-10: improves or maintains quality</span>",
-        "Customer and Stakeholder Alignment": "<span style='color:red;'>1-4: low alignment</span>, <span style='color:orange;'>5-6: moderate</span>, <span style='color:green;'>7-10: high alignment</span>",
-        "Priority for our organisation": "<span style='color:red;'>1-4: low priority</span>, <span style='color:orange;'>5-6: moderate</span>, <span style='color:green;'>7-10: top priority</span>",
-        "Initial investment (£)": "Enter the upfront cost needed (no scale limit).",
-        "Return on Investment (ROI)(years)": "Enter the time (in years) to recover the initial cost (no scale limit).",
-        "Other - Positive Trend": "Enter criteria where a higher number is more beneficial.",
-        "Other - Negative Trend": "Enter criteria where a higher number is less beneficial."
+        "Technical Feasibility": "1-10 scale",
+        "Supplier Reliability and Technology Readiness": "1-10 scale",
+        "Implementation Complexity": "1-10 scale",
+        "Scalability": "1-10 scale",
+        "Maintenance Requirements": "1-10 scale",
+        "Regulatory Compliance": "1-10 scale",
+        "Risk for Workforce Safety": "1-10 scale",
+        "Risk for Operations": "1-10 scale",
+        "Impact on Product Quality": "1-10 scale",
+        "Customer and Stakeholder Alignment": "1-10 scale",
+        "Priority for our organisation": "1-10 scale",
+        "Initial investment (£)": "Enter cost. Will be normalized.",
+        "Return on Investment (ROI)(years)": "Enter ROI years. Will be normalized (lower is better).",
+        "Other - Positive Trend": "Enter a positive trend criterion. Higher = better.",
+        "Other - Negative Trend": "Enter a negative trend criterion. Higher = worse."
     }
 
     selected_criteria = st.multiselect(
@@ -463,6 +545,7 @@ if st.checkbox("Add custom items?"):
         key="selected_criteria_multiselect"
     )
 
+    # Handling other criteria
     if any(crit.startswith("Other -") for crit in selected_criteria):
         other_trend_options = ["Other - Positive Trend", "Other - Negative Trend"]
         selected_other_trends = [crit for crit in selected_criteria if crit in other_trend_options]
@@ -489,7 +572,7 @@ if st.checkbox("Add custom items?"):
                     criteria_options[other_crit_name.strip()] = other_crit_desc.strip() if other_crit_desc.strip() != "" else "No description provided."
 
     for crit in selected_criteria:
-        st.markdown(f"**{crit}:** {criteria_options[crit]}", unsafe_allow_html=True)
+        st.markdown(f"**{crit}:** {criteria_options[crit]}")
 
     if selected_criteria:
         st.write("### Assign Criteria Values to Each Scenario")
@@ -508,21 +591,6 @@ if st.checkbox("Add custom items?"):
                 "Scenario",
                 disabled=True
             )
-        }
-
-        scale_criteria = {
-            "Technical Feasibility", 
-            "Supplier Reliability and Technology Readiness", 
-            "Implementation Complexity",
-            "Scalability", 
-            "Maintenance Requirements", 
-            "Regulatory Compliance", 
-            "Risk for Workforce Safety",
-            "Risk for Operations", 
-            "Impact on Product Quality", 
-            "Customer and Stakeholder Alignment",
-            "Priority for our organisation"
-
         }
 
         for c in selected_criteria:
@@ -670,7 +738,7 @@ if st.checkbox("Add custom items?"):
 
                 top_scenario = scaled_criteria_df.loc[scaled_criteria_df['Rank'] == 1, 'Scenario'].values
                 if len(top_scenario) > 0:
-                    st.success(f"The top-ranked scenario is **{top_scenario[0]}** with the highest carbon savings.")
+                    st.success(f"The top-ranked scenario is **{top_scenario[0]}** with the highest overall score.")
 
 if __name__ == "__main__":
     main()
